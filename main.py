@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import time
 
 from aiogram.exceptions import TelegramForbiddenError
@@ -11,12 +12,13 @@ from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 from config.bot_settings import logger, settings
 from handlers import user_handlers, action_handlers
 from handlers.user_handlers import delete_msg
 from keyboards.keyboards import get_menu, evening_menu
-from services.db_func import morning_users, evening_users, evening_send
+from services.db_func import morning_users, evening_users, evening_send, get_today_work, end_work, vocation_users
 
 
 async def set_commands(bot: Bot):
@@ -67,19 +69,68 @@ async def morning_send(bot):
             logger.error(f'Ошибка отправки сообщения {user}: {err}', exc_info=False)
 
 
+async def end_task(bot, scheduler):
+    # Завершение дня.
+    logger.info(f'Завершение дня')
+    today = datetime.date.today()
+    users_with_empty_work_end_today = evening_users()
+    logger.info(f'На смене: {users_with_empty_work_end_today}')
+    now = datetime.datetime.now()
+    for user in users_with_empty_work_end_today:
+        work = get_today_work(user.id)
+        if work.last_reaction and now - work.last_reaction > datetime.timedelta(hours=1):
+            logger(f'{user} Прошло боле часа с последней реакции')
+            await end_work(user, today, work.last_reaction + datetime.timedelta(hours=1), bot)
+            await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+        if not work.last_reaction:
+            logger.info(f'{user} Реакции не было. Закрываем в 17.00')
+            await end_work(user, today, datetime.datetime.combine(today, datetime.time(17, 0)), bot)
+            await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+
+    # Чё осталось
+    users = evening_users()
+    logger.info(f'Осталось на смене: {users}')
+    if users:
+        if now.time() > datetime.time(23, 00):
+            logger(f'Хватит работать!')
+            for user in users:
+                await end_work(user, today, datetime.datetime.combine(today, datetime.time(23, 00)), bot)
+        else:
+            run_time = datetime.datetime.now() + datetime.timedelta(minutes=15)
+            scheduler.add_job(end_task, DateTrigger(run_date=run_time), args=(bot, scheduler))
+
+
+async def vocation_task(bot: Bot):
+    # Отправка по отпускникам
+    users_to_send = vocation_users()
+    today = datetime.date.today()
+    for user in users_to_send:
+        msg = f"""{user.fio}
+    Username: @{user.username}
+    Дата: {today.strftime('%d.%m.%Y')}
+    Не работает до: {user.vacation_to.strftime('%d.%m.%Y')}
+    """
+        await bot.send_message(chat_id=settings.GROUP_ID, text=msg)
+        await asyncio.sleep(0.1)
+
+
 def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
-    scheduler.add_job(morning_send, "interval", seconds=5, args=(bot,))
-    scheduler.add_job(morning_send, CronTrigger(hour=8, minute=00, day_of_week='mon-fri'), args=(bot,))
-    scheduler.add_job(morning_send, CronTrigger(hour=8, minute=15, day_of_week='mon-fri'), args=(bot,))
-    scheduler.add_job(morning_send, CronTrigger(hour=8, minute=30, day_of_week='mon-fri'), args=(bot,))
-    scheduler.add_job(morning_send, CronTrigger(hour=8, minute=45, day_of_week='mon-fri'), args=(bot,))
-    scheduler.add_job(morning_send, CronTrigger(hour=9, minute=00, day_of_week='mon-fri'), args=(bot,))
-    # scheduler.add_job(morning_send, CronTrigger(hour=15, minute=57, day_of_week='mon-fri'), args=(bot,))
-    scheduler.add_job(evening_send, CronTrigger(hour=19, minute=18, day_of_week='mon-fri'), args=(bot,))
-    scheduler.add_job(evening_send,  "interval", seconds=60, args=(bot,))
+    # scheduler.add_job(morning_send, "interval", seconds=5, args=(bot,))
+    scheduler.add_job(morning_send, CronTrigger(hour=7, minute=59), args=(bot,))
+    scheduler.add_job(morning_send, CronTrigger(hour=8, minute=15), args=(bot,))
+    scheduler.add_job(morning_send, CronTrigger(hour=8, minute=30), args=(bot,))
+    scheduler.add_job(morning_send, CronTrigger(hour=8, minute=45), args=(bot,))
+    scheduler.add_job(morning_send, CronTrigger(hour=9, minute=00), args=(bot,))
+
+    scheduler.add_job(evening_send, CronTrigger(hour=17, minute=00), args=(bot,))
+    # scheduler.add_job(evening_send, CronTrigger(hour=14, minute=56), args=(bot,))
+    # scheduler.add_job(evening_send, "interval", seconds=60, args=(bot,))
+    scheduler.add_job(end_task, CronTrigger(hour=18, minute=1, second=0), args=(bot, scheduler))
+    scheduler.add_job(vocation_task, CronTrigger(hour=18, minute=0, second=0), args=(bot,))
+    scheduler.add_job(vocation_task, "interval", seconds=5, args=(bot,))
+
 
 async def main():
-
     if settings.USE_REDIS:
         storage = RedisStorage.from_url(
             url=f"redis://{settings.REDIS_HOST}",
@@ -106,7 +157,7 @@ async def main():
         scheduler = AsyncIOScheduler()
         set_scheduled_jobs(scheduler, bot)
         scheduler.start()
-        await asyncio.create_task(evening_send(bot))
+        # await asyncio.create_task(evening_send(bot))
 
         # await bot.send_message(chat_id=config.tg_bot.GROUP_ID, text='Бот запущен', reply_markup=begin_kb)
         await dp.start_polling(bot, config=settings)

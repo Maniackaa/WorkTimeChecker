@@ -2,8 +2,9 @@ import datetime
 
 from aiogram import Router, Bot, F
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import CommandStart, CommandObject
+from aiogram.filters import CommandStart, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, ErrorEvent, ReplyKeyboardRemove, CallbackQuery
 from aiogram.utils.payload import decode_payload
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,11 +12,20 @@ from apscheduler.triggers.date import DateTrigger
 
 from config.bot_settings import logger, settings
 from database.db import Timer
-from keyboards.keyboards import start_kb, get_menu
+from keyboards.keyboards import start_kb, get_menu, custom_kb
 from services.db_func import get_or_create_user, start_work, check_work_is_started, end_work, delete_msg, evening_send, \
-    delay_send, check_work_is_ended, get_today_work, format_message
+    delay_send, check_work_is_ended, get_today_work, format_message, check_is_vocation, check_dinner_start
 
 router = Router()
+router.message.filter(F.chat.type == "private")
+
+
+class FSMVocation(StatesGroup):
+    vocation_start = State()
+
+
+class FSMDinner(StatesGroup):
+    dinner_end = State()
 
 
 @router.message(CommandStart(deep_link=True))
@@ -26,19 +36,24 @@ async def handler(message: Message, command: CommandObject, bot: Bot):
 
 
 @router.message(CommandStart())
-async def command_start_process(message: Message, bot: Bot):
+async def command_start_process(message: Message, bot: Bot, state: FSMContext):
+    await state.clear()
     user = get_or_create_user(message.from_user)
     logger.info('Старт', user=user)
     if user.last_message:
         await delete_msg(bot, chat_id=message.chat.id, message_id=user.last_message)
     work_is_started = check_work_is_started(user.id)
     work_is_ended = check_work_is_ended(user.id)
-
-    menu_kb = get_menu(1, work_is_started)
+    is_vocation = check_is_vocation(user.id)
+    dinner_start = check_dinner_start(user.id)
+    menu_kb = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
     if work_is_started and work_is_ended:
         msg = await message.answer('Вы уже сегодня отработали')
-    elif work_is_started:
+    elif work_is_started and not work_is_ended:
         msg = await message.answer('Закончить смену?', reply_markup=menu_kb)
+        user.set('last_message', msg.message_id)
+    elif is_vocation:
+        msg = await message.answer(f'Вы в отпуске до {user.vacation_to}', reply_markup=menu_kb)
         user.set('last_message', msg.message_id)
     else:
         msg = await message.answer('Вы на рабочем месте?  Начинаем работу?', reply_markup=menu_kb)
@@ -47,31 +62,57 @@ async def command_start_process(message: Message, bot: Bot):
 
 @router.callback_query(F.data == 'work_start')
 async def work_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
     user = get_or_create_user(callback.from_user)
     logger.info(f'work_start', user=user)
     today = datetime.date.today()
     now = datetime.datetime.now().replace(microsecond=0)
+    work = get_today_work(user.id)
+    work_is_started = check_work_is_started(user.id)
+    work_is_ended = check_work_is_ended(user.id)
+    is_vocation = check_is_vocation(user.id)
+    dinner_start = check_dinner_start(user.id)
+    menu_kb = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+    if work_is_started and not work_is_ended:
+        await callback.message.answer(f'Вы уже начали смену в {work.begin}', reply_markup=menu_kb)
+        return
+    if work_is_started and work_is_ended:
+        await callback.message.answer(f'Вы уже сегодня отработали')
+        return
     start_work(user.id, today, now)
-    menu = get_menu(1, work_is_started=True)
-    await callback.message.answer(f'Смена начата: {now}', reply_markup=menu)
-    await callback.message.delete()
+    work_is_started = check_work_is_started(user.id)
+    work_is_ended = check_work_is_ended(user.id)
+    is_vocation = check_is_vocation(user.id)
+    dinner_start = check_dinner_start(user.id)
+    menu_kb = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+    await callback.message.answer(f'Смена начата: {now}')
+    msg = await callback.message.answer(f'Выберете действие:', reply_markup=menu_kb)
+    user.set('last_message', msg.message_id)
 
 
 @router.callback_query(F.data == 'work_end')
-async def work_end(callback: CallbackQuery, state: FSMContext):
+async def work_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.message.delete()
     user = get_or_create_user(callback.from_user)
     logger.info(f'work_end', user=user)
-
+    work = get_today_work(user.id)
+    work_is_started = check_work_is_started(user.id)
+    work_is_ended = check_work_is_ended(user.id)
+    is_vocation = check_is_vocation(user.id)
+    dinner_start = check_dinner_start(user.id)
+    menu_kb = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+    if work_is_ended:
+        await callback.message.answer(f'Вы уже закончили смену в {work.end}', reply_markup=menu_kb)
+        return
+    if work_is_started and work_is_ended:
+        await callback.message.answer(f'Вы уже сегодня отработали')
+        return
+    if not work_is_started:
+        await callback.message.answer(f'Вы не начали смену')
+        return
     today = datetime.date.today()
     now = datetime.datetime.now().replace(microsecond=0)
-    end_work(user.id, today, now)
-    # menu = get_menu(1, work_is_started=True)
-    await callback.message.answer(f'Смена окончена: {now}')
-    await callback.message.delete()
-
-    work = get_today_work(user.id)
-    text = format_message(user, work)
-    await callback.bot.send_message(chat_id=settings.GROUP_ID, text=text)
+    await end_work(user, today, now, bot)
 
 
 @router.callback_query(F.data.startswith('work_delay_'))
@@ -80,14 +121,23 @@ async def work_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
     logger.info(f'delay: {delay}')
     with Timer('get_or_create_user'):
         user = get_or_create_user(callback.from_user)
-    menu = get_menu(1, work_is_started=True, work_is_ended=False)
+
+    work = get_today_work(user.id)
+    work_is_started = check_work_is_started(user.id)
+    work_is_ended = check_work_is_ended(user.id)
+    is_vocation = check_is_vocation(user.id)
+    dinner_start = check_dinner_start(user.id)
+    if work_is_ended:
+        await callback.message.answer(f'Смена окончена: {work.end}')
+        return
 
     if user.last_message:
         with Timer('delete_msg'):
             await delete_msg(bot, chat_id=callback.message.chat.id, message_id=user.last_message)
-    msg = await callback.message.answer(f'Рабочий день окончен', reply_markup=menu)
+    menu_kb = custom_kb(1, {'Закончить смену': 'work_end'})
+    msg = await callback.message.answer(f'Рабочий день окончен', reply_markup=menu_kb)
     user.set('last_message', msg.message_id)
-    user.set('last_reaction', datetime.datetime.now())
+    work.set('last_reaction', datetime.datetime.now())
     run_time = datetime.datetime.now() + datetime.timedelta(minutes=delay)
     scheduler = AsyncIOScheduler()
     scheduler.add_job(delay_send, DateTrigger(run_date=run_time), args=(user.id, callback.bot,))
@@ -95,6 +145,114 @@ async def work_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
     logger.info(f'Добавлена задача delay_send для {user}: {run_time}')
 
 
+@router.callback_query(F.data == 'vocation_start')
+async def vocation_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.message.delete()
+    await callback.message.answer('Ведите дату (дд.мм.гггг) когда планируете вернуться к работе')
+    await state.set_state(FSMVocation.vocation_start)
 
 
+@router.message(StateFilter(FSMVocation.vocation_start))
+async def vocation_date(message: Message, state: FSMContext, bot: Bot):
+    date_input = message.text.strip()
+    try:
+        date_obj = datetime.datetime.strptime(date_input, "%d.%m.%Y").date()
+        user = get_or_create_user(message.from_user)
+        user.set('vacation_to', date_obj)
+        kb = custom_kb(1, {'Выйти на работу': 'vocation_end'})
+        msg = await message.answer(f"Выход на работу: <b>{date_obj.strftime('%d.%m.%Y')}</b>", reply_markup=kb)
+        user.set('last_message', msg.message_id)
+        await state.clear()
+        await bot.send_message(chat_id=settings.GROUP_ID, text=f'')
+    except Exception as e:
+        logger.error(e)
+        await message.answer(f'Ведите дату в формате дд.мм.гггг')
+
+
+@router.callback_query(F.data == 'vocation_end')
+async def vocation_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.message.delete()
+    user = get_or_create_user(callback.from_user)
+    user.set('vacation_to', None)
+    await callback.message.answer(f"Вы вышли на работу")
+
+
+@router.callback_query(F.data == 'dinner_start')
+async def dinner_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.message.delete()
+    user = get_or_create_user(callback.from_user)
+    work = get_today_work(user.id)
+    if not work.dinner_start:
+        now = datetime.datetime.now().replace(microsecond=0)
+        work.set('dinner_start', now)
+        work_is_started = check_work_is_started(user.id)
+        work_is_ended = check_work_is_ended(user.id)
+        is_vocation = check_is_vocation(user.id)
+        dinner_start = check_dinner_start(user.id)
+        menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=True)
+        await callback.message.answer(f'Перерыв начат: {now}')
+        msg = await callback.message.answer(f'Закончите перерыв', reply_markup=menu)
+        user.set('last_message', msg.message_id)
+    else:
+        await callback.message.answer(f'Перерыв уже начат в {work.dinner_start}')
+
+
+@router.callback_query(F.data == 'dinner_end')
+async def dinner_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.message.delete()
+    user = get_or_create_user(callback.from_user)
+    work = get_today_work(user.id)
+    now = datetime.datetime.now().replace(microsecond=0)
+    if work.dinner_start and not work.dinner_end:
+        dinner_time = (now - work.dinner_start).total_seconds()
+        work.set('total_dinner', work.total_dinner + dinner_time)
+        work.set('dinner_start', None)
+        work.set('dinner_end', None)
+        work_is_started = check_work_is_started(user.id)
+        work_is_ended = check_work_is_ended(user.id)
+        is_vocation = check_is_vocation(user.id)
+        dinner_start = check_dinner_start(user.id)
+        menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+        await callback.message.answer(f'Перерыв окончен: {now}')
+        msg = await callback.message.answer(f'Перерыв окончен', reply_markup=menu)
+        user.set('last_message', msg.message_id)
+
+
+@router.callback_query(F.data == 'dinner_end_input')
+async def dinner_end_input(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.message.delete()
+    await callback.message.answer('Ведите время окнчания перерыва: ЧЧ:ММ')
+    await state.set_state(FSMDinner.dinner_end)
+
+
+@router.message(StateFilter(FSMDinner.dinner_end))
+async def dinner_end_input(message: Message, state: FSMContext, bot: Bot):
+    time_input = message.text.strip()
+    try:
+        user = get_or_create_user(message.from_user)
+        work = get_today_work(user.id)
+        if work.dinner_start and not work.dinner_end:
+            today = datetime.date.today()
+            time_obj = datetime.datetime.strptime(time_input, "%H:%M").time()
+            dinner_end = datetime.datetime.combine(today, time_obj)
+            if dinner_end < work.dinner_start:
+                await message.answer('Время окончания не может быть ранее начала')
+                return
+            dinner_time = (dinner_end - work.dinner_start).total_seconds()
+            logger.info(f'dinner_time: {dinner_time}')
+            work.set('total_dinner', work.total_dinner + dinner_time)
+            work.set('dinner_start', None)
+            work.set('dinner_end', None)
+            work_is_started = check_work_is_started(user.id)
+            work_is_ended = check_work_is_ended(user.id)
+            is_vocation = check_is_vocation(user.id)
+            dinner_start = check_dinner_start(user.id)
+            menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+            await message.answer(f'Перерыв окончен: {dinner_end}')
+            msg = await message.answer(f'Закончить смену?', reply_markup=menu)
+            user.set('last_message', msg.message_id)
+            await state.clear()
+    except Exception as e:
+        logger.error(e)
+        await message.answer(f'Ведите время в формате ЧЧ:ММ')
 
