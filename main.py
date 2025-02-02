@@ -127,7 +127,7 @@ def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
     # scheduler.add_job(evening_send, "interval", seconds=60, args=(bot,))
     scheduler.add_job(end_task, CronTrigger(hour=18, minute=1, second=0), args=(bot, scheduler))
     scheduler.add_job(vocation_task, CronTrigger(hour=18, minute=0, second=0), args=(bot,))
-    scheduler.add_job(vocation_task, "interval", seconds=5, args=(bot,))
+    # scheduler.add_job(vocation_task, "interval", seconds=5, args=(bot,))
 
 
 async def main():

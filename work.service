@@ -1,0 +1,15 @@
+[Unit]
+Description=work
+After=network.target
+
+[Service]
+EnvironmentFile=
+ExecStart=/root/WorkTimeChecker/venv/bin/python3 main.py
+ExecReload=/root/WorkTimeChecker/venv/bin/python3 main.py
+WorkingDirectory=/root/WorkTimeChecker
+KillMode=process
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

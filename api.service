@@ -1,0 +1,15 @@
+[Unit]
+Description=api
+After=network.target
+
+[Service]
+EnvironmentFile=
+ExecStart=/root/WorkTimeChecker/venv/bin/uvicorn api:app --host "45.82.82.181"
+ExecReload=/root/WorkTimeChecker/venv/bin/uvicorn api:app --host "45.82.82.181"
+WorkingDirectory=/root/WorkTimeChecker
+KillMode=process
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

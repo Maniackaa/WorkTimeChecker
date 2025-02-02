@@ -67,7 +67,7 @@ def get_menu(width: int, work_is_started=False, work_is_ended=False, is_vocation
 def evening_menu():
     kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
     work_end = InlineKeyboardButton(text=f'Закончить смену', callback_data='work_end')
-    b2 = InlineKeyboardButton(text=f'Еще 15 минут', callback_data='work_delay_1')
+    b2 = InlineKeyboardButton(text=f'Еще 15 минут', callback_data='work_delay_15')
     b3 = InlineKeyboardButton(text=f'Еще час', callback_data='work_delay_60')
     kb_builder.row(work_end, b2, b3, width=1)
     return kb_builder.as_markup()

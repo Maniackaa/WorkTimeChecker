@@ -14,6 +14,7 @@ class WorkResponse(BaseModel):
     date: str
     start: str
     end: Optional[str]
+    dinners_min: str
     usernameTG: Optional[str]
     user_id: int
 
@@ -36,7 +37,6 @@ async def get_data(
     """
     session = Session()
 
-
     try:
         stmt = (
            select(Work, User.username, User.id)
@@ -48,11 +48,12 @@ async def get_data(
         for work, username, user_id in works:
             result.append(
                 WorkResponse(
-                   date=format_date(work.date),
+                    date=format_date(work.date),
                     start=format_datetime(work.begin),
                     end=format_datetime(work.end) if work.end else None,
-                   usernameTG=username,
-                   user_id=user_id
+                    dinners_min=str(work.total_dinner // 60),
+                    usernameTG=username,
+                    user_id=user_id
                 )
             )
         return result
