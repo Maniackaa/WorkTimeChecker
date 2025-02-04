@@ -18,7 +18,8 @@ from config.bot_settings import logger, settings
 from handlers import user_handlers, action_handlers
 from handlers.user_handlers import delete_msg
 from keyboards.keyboards import get_menu, evening_menu
-from services.db_func import morning_users, evening_users, evening_send, get_today_work, end_work, vocation_users
+from services.db_func import morning_users, evening_users, evening_send, get_today_work, end_work, vocation_users, \
+    all_evening_users
 
 
 async def set_commands(bot: Bot):
@@ -88,13 +89,13 @@ async def end_task(bot, scheduler):
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
 
     # Чё осталось
-    users = evening_users()
+    users = all_evening_users()
     logger.info(f'Осталось на смене: {users}')
     if users:
-        if now.time() > datetime.time(23, 00):
+        if now.time() > datetime.time(23, 59):
             logger(f'Хватит работать!')
             for user in users:
-                await end_work(user, today, datetime.datetime.combine(today, datetime.time(23, 00)), bot)
+                await end_work(user, today, datetime.datetime.combine(today, datetime.time(23, 59)), bot)
         else:
             run_time = datetime.datetime.now() + datetime.timedelta(minutes=15)
             scheduler.add_job(end_task, DateTrigger(run_date=run_time), args=(bot, scheduler))

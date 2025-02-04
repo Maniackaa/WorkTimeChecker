@@ -92,14 +92,11 @@ async def end_work(user: User, date, end_time, bot):
         with session:
             q = select(Work).where(Work.user_id == user.id).where(Work.date == date)
             work = session.execute(q).scalars().one_or_none()
-            today = datetime.datetime.today()
-            if not work:
-                work = Work(user_id=user.id, date=today, end=end_time)
-                logger.info(f'Создано новое конец смены {user} {end_time}')
-                session.add(work)
-            else:
-                logger.info(f'Обновлено конец смены {user} {end_time}')
-                work.end = end_time
+            if work.dinner_start:
+                end_time = work.dinner_start
+            work.dinner_start = None
+            logger.info(f'Обновлено конец смены {user} {end_time}')
+            work.end = end_time
             session.commit()
 
         work = get_today_work(user.id)
@@ -146,6 +143,24 @@ def morning_users():
 
 
 def evening_users():
+    session = Session(expire_on_commit=False)
+    today = datetime.date.today()
+    # logger.info(f'Юзеры, которые {today} еще не закончили работу')
+    with session:
+        query = (
+            session.query(User)
+            .join(Work, User.id == Work.user_id, isouter=True)
+            .filter(Work.dinner_start.is_(None))
+            .filter(Work.begin.is_not(None))
+            .filter(Work.end.is_(None))
+            .filter(Work.date == today)
+            .options(joinedload(User.works))
+        )
+        users_with_empty_work_end_today = query.all()
+    logger.debug(f'Юзеры, которые {today} еще не закончили работу: {users_with_empty_work_end_today}')
+    return users_with_empty_work_end_today
+
+def all_evening_users():
     session = Session(expire_on_commit=False)
     today = datetime.date.today()
     # logger.info(f'Юзеры, которые {today} еще не закончили работу')
