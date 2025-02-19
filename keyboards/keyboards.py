@@ -40,13 +40,13 @@ def get_menu(width: int, work_is_started=False, work_is_ended=False, is_vocation
     if work_is_started and work_is_ended:
         return None
     if not work_is_started and not work_is_ended and not is_vocation and not dinner_started:
-        work_start = InlineKeyboardButton(text=f'Приступить к работе', callback_data='work_start')
-        vocation = InlineKeyboardButton(text=f'Не работаю', callback_data='vocation_start')
-        buttons.append(work_start)
-        buttons.append(vocation)
+        work_start_button = InlineKeyboardButton(text=f'Приступить к работе', callback_data='work_start')
+        vocation_button = InlineKeyboardButton(text=f'Не работаю', callback_data='vocation_start')
+        buttons.append(work_start_button)
+        buttons.append(vocation_button)
     if work_is_started and not work_is_ended and not dinner_started:
-        work_end = InlineKeyboardButton(text=f'Закончить смену', callback_data='work_end')
-        buttons.append(work_end)
+        work_end_button = InlineKeyboardButton(text=f'Закончить смену', callback_data='work_end')
+        buttons.append(work_end_button)
     if work_is_started and not dinner_started:
         dinner = InlineKeyboardButton(text=f'Перерыв', callback_data='dinner_start')
         buttons.append(dinner)

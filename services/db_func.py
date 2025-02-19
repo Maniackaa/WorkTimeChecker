@@ -37,11 +37,10 @@ def get_or_create_user(user) -> User:
         with session:
             tg_id = str(user.id)
             username = user.username
-            # logger.debug(f'username {username}')
             old_user = check_user(tg_id)
             if old_user:
                 # logger.debug('Пользователь есть в базе')
-                if not old_user.username:
+                if not old_user.username or username != old_user.username:
                     old_user.username = username
                 if not old_user.fio:
                     old_user.fio = user.full_name
@@ -268,6 +267,7 @@ async def evening_send(bot):
             is_vocation = check_is_vocation(user.id)
             dinner_start = check_dinner_start(user.id)
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+            menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
             if dinner_start:
                 logger.info(f'{user} на перерыве')
                 menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
@@ -275,7 +275,7 @@ async def evening_send(bot):
                 user.set('last_message', msg.message_id)
                 return
             else:
-                msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=evening_kb)
+                msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
                 logger.info(f'Рабочий день окончен? {user} отправлен')
                 user.set('last_message', msg.message_id)
             await asyncio.sleep(0.1)
