@@ -80,7 +80,7 @@ async def end_task(bot, scheduler):
     for user in users_with_empty_work_end_today:
         work = get_today_work(user.id)
         if work.last_reaction and now - work.last_reaction > datetime.timedelta(hours=1):
-            logger(f'{user} Прошло боле часа с последней реакции')
+            logger.info(f'{user} Прошло боле часа с последней реакции')
             await end_work(user, today, work.last_reaction + datetime.timedelta(hours=1), bot)
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
         if not work.last_reaction:
@@ -93,7 +93,7 @@ async def end_task(bot, scheduler):
     logger.info(f'Осталось на смене: {users}')
     if users:
         if now.time() > datetime.time(23, 59):
-            logger(f'Хватит работать!')
+            logger.info(f'Хватит работать!')
             for user in users:
                 await end_work(user, today, datetime.datetime.combine(today, datetime.time(23, 59)), bot)
         else:
