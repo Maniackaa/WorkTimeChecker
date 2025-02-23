@@ -1,13 +1,11 @@
 import asyncio
 import datetime
-import time
 
 from aiogram.exceptions import TelegramForbiddenError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import ExceptionTypeFilter
 from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
@@ -17,7 +15,7 @@ from apscheduler.triggers.date import DateTrigger
 from config.bot_settings import logger, settings
 from handlers import user_handlers, action_handlers
 from handlers.user_handlers import delete_msg
-from keyboards.keyboards import get_menu, evening_menu
+from keyboards.keyboards import get_menu
 from services.db_func import morning_users, evening_users, evening_send, get_today_work, end_work, vocation_users, \
     all_evening_users
 

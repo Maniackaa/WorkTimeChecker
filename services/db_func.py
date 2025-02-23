@@ -149,7 +149,7 @@ def evening_users():
         query = (
             session.query(User)
             .join(Work, User.id == Work.user_id, isouter=True)
-            .filter(Work.dinner_start.is_(None))
+            # .filter(Work.dinner_start.is_(None))
             .filter(Work.begin.is_not(None))
             .filter(Work.end.is_(None))
             .filter(Work.date == today)
@@ -258,10 +258,8 @@ async def evening_send(bot):
     users_to_send = evening_users()
     print(f'users_to_send: {users_to_send}')
     text = f'Рабочий день окончен'
-    evening_kb = evening_menu()
     for user in users_to_send:
         try:
-
             work_is_started = check_work_is_started(user.id)
             work_is_ended = check_work_is_ended(user.id)
             is_vocation = check_is_vocation(user.id)
@@ -270,7 +268,6 @@ async def evening_send(bot):
             menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
             if dinner_start:
                 logger.info(f'{user} на перерыве')
-                menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
                 msg = await bot.send_message(chat_id=user.tg_id, text='Рабочий день окончен? Закончите перерыв!', reply_markup=menu)
                 user.set('last_message', msg.message_id)
                 return
