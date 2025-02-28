@@ -15,7 +15,7 @@ from config.bot_settings import logger, settings
 from database.db import Timer
 from keyboards.keyboards import start_kb, get_menu, custom_kb, get_confirm_end_menu, get_dinner_menu, \
     get_after_start_menu
-from services.db_func import get_or_create_user, start_work, check_work_is_started, end_work, delete_msg, evening_send, \
+from services.db_func import get_or_create_user, start_work, check_work_is_started, end_work, delete_msg, \
     delay_send, check_work_is_ended, get_today_work, format_message, check_is_vocation, check_dinner_start
 
 router = Router()
@@ -28,6 +28,9 @@ class FSMVocation(StatesGroup):
 
 class FSMDinner(StatesGroup):
     dinner_end = State()
+
+class FSMWork(StatesGroup):
+    work_end = State()
 
 
 @router.message(CommandStart(deep_link=True))
@@ -277,3 +280,33 @@ async def dinner_end_input(message: Message, state: FSMContext, bot: Bot):
         logger.error(e)
         await message.answer(f'Ведите время в формате ЧЧ:ММ')
 
+
+
+@router.callback_query(F.data == 'work_end_manual')
+async def work_end_manual(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.message.delete()
+    await callback.message.answer('Ведите время окончания работы: ЧЧ:ММ')
+    await state.set_state(FSMWork.work_end)
+
+
+@router.message(StateFilter(FSMWork.work_end))
+async def work_end_manual_input(message: Message, state: FSMContext, bot: Bot):
+    time_input = message.text.strip()
+    try:
+        user = get_or_create_user(message.from_user)
+        work = get_today_work(user.id)
+        if work.begin and not work.end:
+            today = datetime.date.today()
+            time_obj = datetime.datetime.strptime(time_input, "%H:%M").time()
+            work_end = datetime.datetime.combine(today, time_obj)
+            if work_end > datetime.datetime.now():
+                await message.answer('Время окончания не может быть позже чем сейчас')
+                return
+
+            logger.info(f'work_end: {work_end}')
+            await message.answer(f'Смена окончена: {format_datetime(work_end)}')
+            user.set('end', work_end)
+            await state.clear()
+    except Exception as e:
+        logger.error(e)
+        await message.answer(f'Ведите время в формате ЧЧ:ММ')
