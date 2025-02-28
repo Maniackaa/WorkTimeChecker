@@ -78,7 +78,7 @@ async def end_task(bot, scheduler):
     for user in users_with_empty_work_end_today:
         work = get_today_work(user.id)
         if work.last_reaction and now - work.last_reaction > datetime.timedelta(hours=1):
-            logger.info(f'{user} Прошло боле часа с последней реакции')
+            logger(f'{user} Прошло боле часа с последней реакции')
             await end_work(user, today, work.last_reaction + datetime.timedelta(hours=1), bot)
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
         if not work.last_reaction:
@@ -91,7 +91,7 @@ async def end_task(bot, scheduler):
     logger.info(f'Осталось на смене: {users}')
     if users:
         if now.time() > datetime.time(23, 59):
-            logger.info(f'Хватит работать!')
+            logger(f'Хватит работать!')
             for user in users:
                 await end_work(user, today, datetime.datetime.combine(today, datetime.time(23, 59)), bot)
         else:
@@ -124,6 +124,7 @@ def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
     scheduler.add_job(evening_send, CronTrigger(hour=17, minute=00), args=(bot,))
     # scheduler.add_job(evening_send, CronTrigger(hour=14, minute=56), args=(bot,))
     # scheduler.add_job(evening_send, "interval", seconds=60, args=(bot,))
+
     scheduler.add_job(end_task, CronTrigger(hour=18, minute=1, second=0), args=(bot, scheduler))
     scheduler.add_job(vocation_task, CronTrigger(hour=18, minute=0, second=0), args=(bot,))
     # scheduler.add_job(vocation_task, "interval", seconds=5, args=(bot,))
@@ -158,7 +159,7 @@ async def main():
         scheduler.start()
         # await asyncio.create_task(evening_send(bot))
 
-        # await bot.send_message(chat_id=config.tg_bot.GROUP_ID, text='Бот запущен', reply_markup=begin_kb)
+        await bot.send_message(chat_id=settings.ADMIN_IDS[0], text='Бот запущен')
         await dp.start_polling(bot, config=settings)
     finally:
         await dp.fsm.storage.close()

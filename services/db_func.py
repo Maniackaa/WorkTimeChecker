@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from config.bot_settings import logger, settings
 from database.db import Session, User, Work
-from keyboards.keyboards import evening_menu, get_menu
+from keyboards.keyboards import get_menu
 
 
 def check_user(id):
