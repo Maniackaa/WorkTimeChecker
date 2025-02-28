@@ -161,7 +161,7 @@ async def work_delay(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
     target_time = datetime.datetime.now() + datetime.timedelta(minutes=delay)
     target_time_str = format_datetime(datetime.datetime.now() + datetime.timedelta(minutes=delay))
-    msg = await callback.message.answer(f'Планируемое врямя окончания: {target_time_ыек}', reply_markup=menu_kb)
+    msg = await callback.message.answer(f'Планируемое врямя окончания: {target_time_str}', reply_markup=menu_kb)
     user.set('last_message', msg.message_id)
     work.set('last_reaction', target_time)
     # run_time = datetime.datetime.now() + datetime.timedelta(minutes=delay)

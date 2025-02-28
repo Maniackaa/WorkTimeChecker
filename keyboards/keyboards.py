@@ -1,3 +1,5 @@
+import datetime
+
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup,\
     InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
@@ -91,6 +93,7 @@ def get_menu(width: int, work_is_started=False, work_is_ended=False, is_vocation
     kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
     buttons = []
     logger.info(f'work_is_started: {bool(work_is_started)}, work_is_ended: {bool(work_is_ended)},  vocation: {bool(is_vocation)}, dinner_started: {dinner_started}')
+    now = datetime.datetime.now()
 
     if work_is_started and work_is_ended:
         return None
@@ -108,9 +111,10 @@ def get_menu(width: int, work_is_started=False, work_is_ended=False, is_vocation
     if work_is_started and not work_is_ended and not dinner_started:
         # На смене, не на обеде
         logger.info(f'work_is_started and not work_is_ended and not dinner_started')
-        buttons.append(work_end_button_15)
-        buttons.append(work_end_button_30)
-        buttons.append(work_end_button_60)
+        if now.hour >= 17:
+            buttons.append(work_end_button_15)
+            buttons.append(work_end_button_30)
+            buttons.append(work_end_button_60)
         buttons.append(work_end_button_manual)
         buttons.append(work_end_button_question)
 
