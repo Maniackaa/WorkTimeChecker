@@ -45,7 +45,7 @@ class User(Base):
     register_date: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     fio: Mapped[str] = mapped_column(String(200), nullable=True)
     is_active: Mapped[int] = mapped_column(Integer(), default=0)
-    is_worked: Mapped[int] = mapped_column(Integer(), default=0)
+    is_worked: Mapped[int] = mapped_column(Integer(), default=1)
     vacation_to: Mapped[datetime.datetime] = mapped_column(Date(), nullable=True)
     last_message: Mapped[int] = mapped_column(Integer(), nullable=True)
     works: Mapped[List['Work']] = relationship(back_populates='user',
@@ -125,4 +125,4 @@ def add_users_if_not_exists(session, users_data):
             print(f"User already exists: {tg_id} - {fio}")
 
 
-add_users_if_not_exists(Session(expire_on_commit=False), read_users_from_json())
+# add_users_if_not_exists(Session(expire_on_commit=False), read_users_from_json())

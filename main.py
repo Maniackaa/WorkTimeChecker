@@ -152,7 +152,7 @@ def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
 
     scheduler.add_job(evening_send, CronTrigger(hour=17, minute=00), args=(bot,))
     # scheduler.add_job(evening_send, CronTrigger(hour=14, minute=56), args=(bot,))
-    # scheduler.add_job(evening_send, "interval", seconds=60, args=(bot,))
+    # scheduler.add_job(evening_send, "interval", seconds=5, args=(bot,))
 
     scheduler.add_job(end_task, CronTrigger(hour=23, minute=55, second=0), args=(bot, scheduler))
     scheduler.add_job(vocation_task, CronTrigger(hour=18, minute=0, second=0), args=(bot,))
@@ -179,9 +179,7 @@ async def main():
         dp.include_router(action_handlers.router)
 
         await set_commands(bot)
-        # await bot.get_updates(offset=-1)
         await bot.delete_webhook(drop_pending_updates=True)
-        await bot.send_message(chat_id=settings.ADMIN_IDS[0], text='Бот запущен')
 
         scheduler = AsyncIOScheduler()
         set_scheduled_jobs(scheduler, bot)
