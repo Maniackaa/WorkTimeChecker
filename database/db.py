@@ -70,6 +70,9 @@ class Work(Base):
     dinner_end: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     total_dinner: Mapped[int] = mapped_column(Integer(), default=0)
 
+    def __repr__(self):
+        return f'Work {self.id}. {self.date}'
+
 
 class Timer:
 

@@ -135,7 +135,15 @@ def morning_users():
         ).outerjoin(Work, and_(Work.user_id == User.id, Work.date == today))
 
         users = session.scalars(stmt).all()
-        available_users = [user for user in users if not user.works or (user.works and user.works[0].begin is None)]
+        available_users = []
+        for user in users:
+            if not user.works:
+                available_users.append(user)
+            else:
+                last_work = user.works[-1]
+                # Если сегодня нет работы или есть, но не началась
+                if last_work.date != today or (last_work.date == today and not last_work.begin):
+                    available_users.append(user)
 
     logger.debug(f'Юзеры, которые сегодня еще не вышли на работу: {available_users}')
     return available_users
@@ -144,19 +152,17 @@ def morning_users():
 def evening_users():
     session = Session(expire_on_commit=False)
     today = datetime.date.today()
-    # logger.info(f'Юзеры, которые {today} еще не закончили работу')
     with session:
         query = (
             session.query(User)
             .join(Work, User.id == Work.user_id, isouter=True)
-            # .filter(Work.dinner_start.is_(None))
             .filter(Work.begin.is_not(None))
             .filter(Work.end.is_(None))
             .filter(Work.date == today)
             .options(joinedload(User.works))
         )
         users_with_empty_work_end_today = query.all()
-    logger.debug(f'Юзеры, которые {today} еще не закончили работу: {users_with_empty_work_end_today}')
+    logger.debug(f'Юзеры, которые {today} еще не закончили работу ({len(users_with_empty_work_end_today)}): {users_with_empty_work_end_today}')
     return users_with_empty_work_end_today
 
 def all_evening_users():
@@ -252,24 +258,6 @@ async def delete_msg(bot: Bot, chat_id, message_id):
         logger.warning(e)
 
 
-
-
-
-async def delay_send(user_id, bot):
-    user = get_user_from_id(user_id)
-    logger.info(f'Отправка вечернего сообщения для {user} если еще не закончил')
-    work = get_today_work(user.id)
-    if user.last_message:
-        await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
-    if not work.end:
-        menu = evening_menu()
-        text = f'Рабочий день окончен'
-        msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
-        user.set('last_message', msg.message_id)
-    else:
-        logger.info(f'{user} Уже закончил')
-
-
 def format_message(user: User, work: Work):
     work_durations = calculate_work_durations(user.id)
     msg = f"""{user.fio}
@@ -344,8 +332,8 @@ def calculate_work_durations(user_id: int):
 async def main():
     # x = morning_users()
     # print(x)
-    # y = evening_users()
-    # print(y)
+    y = evening_users()
+    print(y)
     # a = calculate_work_durations(1)
     # print(a)
     b = vocation_users()

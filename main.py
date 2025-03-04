@@ -105,10 +105,6 @@ async def end_task(bot, scheduler):
     logger.info(f'На смене: {users_with_empty_work_end_today}')
     for user in users_with_empty_work_end_today:
         work = get_today_work(user.id)
-        # if work.last_reaction and now - work.last_reaction > datetime.timedelta(hours=1):
-        #     logger(f'{user} Прошло боле часа с последней реакции')
-        #     await end_work(user, today, work.last_reaction + datetime.timedelta(hours=1), bot)
-        #     await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
         if not work.last_reaction:
             logger.info(f'{user} Реакции не было. Закрываем в 17.00')
             await end_work(user, today, datetime.datetime.combine(today, datetime.time(17, 0)), bot)
@@ -118,7 +114,7 @@ async def end_task(bot, scheduler):
     users = all_evening_users()
     logger.info(f'Осталось на смене: {users}')
     if users:
-        logger(f'Хватит работать!')
+        logger.info(f'Хватит работать!')
         for user in users:
             work = get_today_work(user.id)
             if work.last_reaction:
@@ -143,7 +139,7 @@ async def vocation_task(bot: Bot):
 
 
 def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
-    # scheduler.add_job(morning_send, "interval", seconds=5, args=(bot,))
+    # scheduler.add_job(morning_send, "interval", seconds=10, args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=7, minute=59), args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=8, minute=15), args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=8, minute=30), args=(bot,))
@@ -184,6 +180,7 @@ async def main():
         scheduler = AsyncIOScheduler()
         set_scheduled_jobs(scheduler, bot)
         scheduler.start()
+        # await asyncio.create_task(morning_send(bot))
         # await asyncio.create_task(evening_send(bot))
 
         await bot.send_message(chat_id=settings.ADMIN_IDS[0], text='Бот запущен')
