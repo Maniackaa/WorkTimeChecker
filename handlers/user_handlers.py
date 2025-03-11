@@ -69,7 +69,7 @@ async def command_start_process(message: Message, bot: Bot, state: FSMContext):
 async def work_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     user = get_or_create_user(callback.from_user)
-    logger.info(f'work_start', user=user)
+    logger.info(f'{user} work_start')
     today = datetime.date.today()
     now = datetime.datetime.now().replace(microsecond=0)
     work = get_today_work(user.id)
@@ -94,9 +94,11 @@ async def work_start(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == 'work_end_question')
 async def work_end_question(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """❌ Закончить смену7"""
+    """❌ Закончить смену?"""
     menu = get_confirm_end_menu()
     await callback.message.delete()
+    user = get_or_create_user(callback.from_user)
+    logger.info(f'{user} ❌ Закончить смену?')
     await callback.message.answer('Завершить смену?', reply_markup=menu)
 
 
@@ -104,6 +106,7 @@ async def work_end_question(callback: CallbackQuery, state: FSMContext, bot: Bot
 async def work_continue(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Продолжить работать"""
     user = get_or_create_user(callback.from_user)
+    logger.info(f'{user} Продолжить работать')
     # work = get_today_work(user.id)
     work_is_started = check_work_is_started(user.id)
     work_is_ended = check_work_is_ended(user.id)
@@ -144,7 +147,7 @@ async def work_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
 async def work_delay(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """⏱️ Закончу через X минут"""
     delay = int(callback.data.split('work_delay_')[1])
-    logger.info(f'delay: {delay}')
+    logger.info(f'delay: {delay} {callback.from_user}')
     with Timer('get_or_create_user'):
         user = get_or_create_user(callback.from_user)
 
@@ -170,7 +173,7 @@ async def work_delay(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == 'vocation_start')
 async def vocation_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.message.delete()
-    await callback.message.answer('Ведите дату (дд.мм.гггг) когда планируете вернуться к работе')
+    await callback.message.answer('Введите дату (дд.мм.гггг) когда планируете вернуться к работе')
     await state.set_state(FSMVocation.vocation_start)
 
 
@@ -188,7 +191,7 @@ async def vocation_date(message: Message, state: FSMContext, bot: Bot):
         await bot.send_message(chat_id=settings.GROUP_ID, text=f'')
     except Exception as e:
         logger.error(e)
-        await message.answer(f'Ведите дату в формате дд.мм.гггг')
+        await message.answer(f'Введите дату в формате дд.мм.гггг')
 
 
 @router.callback_query(F.data == 'vocation_end')
@@ -201,10 +204,13 @@ async def vocation_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
 @router.callback_query(F.data == 'dinner_start')
 async def dinner_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
+
     await callback.message.delete()
     user = get_or_create_user(callback.from_user)
+    logger.info(f'Перерыв старт {user}')
     work = get_today_work(user.id)
     if not work.dinner_start:
+        logger.info(f'Перерыв не начат {user}')
         now = datetime.datetime.now().replace(microsecond=0)
         work.set('dinner_start', now)
         work.set('last_reaction', now)
@@ -212,6 +218,7 @@ async def dinner_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
         msg = await callback.message.answer(f'Закончите перерыв', reply_markup=get_dinner_menu())
         user.set('last_message', msg.message_id)
     else:
+        logger.info(f'Перерыв уже начат {user} в {work.dinner_start}')
         await callback.message.answer(f'Перерыв уже начат в {work.dinner_start}')
 
 
@@ -219,6 +226,7 @@ async def dinner_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
 async def dinner_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.message.delete()
     user = get_or_create_user(callback.from_user)
+    logger.info(f'{user} dinner_end')
     work = get_today_work(user.id)
     now = datetime.datetime.now().replace(microsecond=0)
     if work.dinner_start and not work.dinner_end:
@@ -226,7 +234,7 @@ async def dinner_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
         work.set('total_dinner', work.total_dinner + dinner_time)
         work.set('dinner_start', None)
         work.set('dinner_end', None)
-        work.set('last_reaction', now)
+        work.set('last_reaction', None)
         work_is_started = check_work_is_started(user.id)
         work_is_ended = check_work_is_ended(user.id)
         is_vocation = check_is_vocation(user.id)
@@ -240,7 +248,7 @@ async def dinner_end(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == 'dinner_end_input')
 async def dinner_end_input(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.message.delete()
-    await callback.message.answer('Ведите время окнчания перерыва: ЧЧ:ММ')
+    await callback.message.answer('Введите время окнчания перерыва: ЧЧ:ММ')
     await state.set_state(FSMDinner.dinner_end)
 
 
@@ -273,14 +281,14 @@ async def dinner_end_input(message: Message, state: FSMContext, bot: Bot):
             await state.clear()
     except Exception as e:
         logger.error(e)
-        await message.answer(f'Ведите время в формате ЧЧ:ММ')
+        await message.answer(f'Введите время в формате ЧЧ:ММ')
 
 
 
 @router.callback_query(F.data == 'work_end_manual')
 async def work_end_manual(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.message.delete()
-    await callback.message.answer('Ведите время окончания работы: ЧЧ:ММ')
+    await callback.message.answer('Введите время окончания работы: ЧЧ:ММ')
     await state.set_state(FSMWork.work_end)
 
 
@@ -300,8 +308,8 @@ async def work_end_manual_input(message: Message, state: FSMContext, bot: Bot):
 
             logger.info(f'work_end: {work_end}')
             await message.answer(f'Смена окончена: {format_datetime(work_end)}')
-            user.set('end', work_end)
+            work.set('end', work_end)
             await state.clear()
     except Exception as e:
         logger.error(e)
-        await message.answer(f'Ведите время в формате ЧЧ:ММ')
+        await message.answer(f'Введите время в формате ЧЧ:ММ')

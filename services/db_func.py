@@ -91,9 +91,6 @@ async def end_work(user: User, date, end_time, bot):
         with session:
             q = select(Work).where(Work.user_id == user.id).where(Work.date == date)
             work = session.execute(q).scalars().one_or_none()
-            if work.dinner_start:
-                end_time = work.dinner_start
-            work.dinner_start = None
             logger.info(f'Обновлено конец смены {user} {end_time}')
             work.end = end_time
             session.commit()
@@ -104,7 +101,7 @@ async def end_work(user: User, date, end_time, bot):
         await bot.send_message(chat_id=user.tg_id, text=f'Смена окончена: {end_time}')
 
     except Exception as e:
-        raise e
+        logger.warning(f'Ошибка при окончании смены для {user} {date}, {end_time}')
 
 
 def get_today_work(user_id: int) -> Work:
@@ -121,32 +118,35 @@ def get_today_work(user_id: int) -> Work:
 
 def morning_users():
     # Юзеры, которые сегодня еще не вышли на работу
-    session = Session(expire_on_commit=False)
-    today = datetime.date.today()
-    with session:
-        stmt = select(User).where(
-            and_(
-                User.is_worked == 1,
-                or_(
-                    User.vacation_to == None,
-                    User.vacation_to <= today
-                ),
-            )
-        ).outerjoin(Work, and_(Work.user_id == User.id, Work.date == today))
+    try:
+        session = Session(expire_on_commit=False)
+        today = datetime.date.today()
+        with session:
+            stmt = select(User).where(
+                and_(
+                    User.is_worked == 1,
+                    or_(
+                        User.vacation_to == None,
+                        User.vacation_to <= today
+                    ),
+                )
+            ).outerjoin(Work, and_(Work.user_id == User.id, Work.date == today))
 
-        users = session.scalars(stmt).all()
-        available_users = []
-        for user in users:
-            if not user.works:
-                available_users.append(user)
-            else:
-                last_work = user.works[-1]
-                # Если сегодня нет работы или есть, но не началась
-                if last_work.date != today or (last_work.date == today and not last_work.begin):
+            users = session.scalars(stmt).all()
+            available_users = []
+            for user in users:
+                if not user.works:
                     available_users.append(user)
+                else:
+                    last_work = user.works[-1]
+                    # Если сегодня нет работы или есть, но не началась
+                    if last_work.date != today or (last_work.date == today and not last_work.begin):
+                        available_users.append(user)
 
-    logger.debug(f'Юзеры, которые сегодня еще не вышли на работу: {available_users}')
-    return available_users
+        logger.debug(f'Юзеры, которые сегодня еще не вышли на работу: {available_users}')
+        return available_users
+    except Exception as e:
+        logger.error(e)
 
 
 def evening_users():
@@ -217,12 +217,15 @@ def check_work_is_ended(user_id: int):
     with session:
         q = (session.query(Work).filter(Work.user_id == user_id).filter(Work.date == today))
         work = q.one_or_none()
-        logger.info(f'work_is_ended: {work}')
+
         if not work:
+            logger.info(f'Не начинал работать')
             return False
         if work.end:
+            logger.info(f'work_is_ended: {work.end}')
             return True
         else:
+            logger.info(f'work_is_ended: {work.end}')
             return False
 
 
@@ -330,10 +333,10 @@ def calculate_work_durations(user_id: int):
     }
 
 async def main():
-    # x = morning_users()
-    # print(x)
-    y = evening_users()
-    print(y)
+    x = morning_users()
+    print(x)
+    # y = evening_users()
+    # print(y)
     # a = calculate_work_durations(1)
     # print(a)
     b = vocation_users()

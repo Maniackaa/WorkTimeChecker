@@ -99,7 +99,7 @@ def get_menu(width: int, work_is_started=False, work_is_ended=False, is_vocation
         return None
 
     if work_is_started and not dinner_started:
-        # На смене, не на обеде
+        # Смену начал, не на обеде
         logger.info(f'work_is_started and not dinner_started')
         buttons.append(dinner)
 
