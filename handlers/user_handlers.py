@@ -310,6 +310,10 @@ async def work_end_manual_input(message: Message, state: FSMContext, bot: Bot):
             await message.answer(f'Смена окончена: {format_datetime(work_end)}')
             work.set('end', work_end)
             await state.clear()
+
+            work = get_today_work(user.id)
+            text = format_message(user, work)
+            await bot.send_message(chat_id=settings.GROUP_ID, text=text)
     except Exception as e:
         logger.error(e)
         await message.answer(f'Введите время в формате ЧЧ:ММ')

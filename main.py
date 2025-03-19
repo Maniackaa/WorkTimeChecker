@@ -91,7 +91,7 @@ async def evening_send(bot):
                 logger.info(f'{user} на перерыве')
                 msg = await bot.send_message(chat_id=user.tg_id, text='Рабочий день окончен? Закончите перерыв!', reply_markup=menu)
                 user.set('last_message', msg.message_id)
-                return
+                continue
             else:
                 msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
                 logger.info(f'Рабочий день окончен? {user} отправлен')

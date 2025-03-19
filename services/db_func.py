@@ -333,10 +333,10 @@ def calculate_work_durations(user_id: int):
     }
 
 async def main():
-    x = morning_users()
-    print(x)
-    # y = evening_users()
-    # print(y)
+    # x = morning_users()
+    # print(x)
+    y = evening_users()
+    print(y)
     # a = calculate_work_durations(1)
     # print(a)
     b = vocation_users()
