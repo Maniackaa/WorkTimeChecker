@@ -114,7 +114,11 @@ async def end_task(bot):
         work = get_today_work(user.id)
         if not work.last_reaction:
             logger.info(f'{user} Реакции не было. Закрываем в 17.00')
-            await end_work(user, today, datetime.datetime.combine(today, datetime.time(17, 0)), bot)
+            end_time1 = datetime.datetime.combine(today, datetime.time(17, 0))
+            end_time2 = work.begin
+            end_time = max(end_time1, end_time2)
+            logger.info(f'{user} Реакции не было. Закрываем в 17.00 {end_time}')
+            await end_work(user, today, end_time, bot)
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
         else:
             logger.info(f'{user} есть реакция в {work.last_reaction}.')
