@@ -341,6 +341,12 @@ async def main():
     # print(a)
     b = vocation_users()
     print(b)
+    x = calculate_work_durations(1)
+    print(x)
+    work = get_today_work(1)
+    user = get_user_from_id(1)
+    text = format_message(user, work)
+    print(text)
 
 
 

@@ -20,7 +20,7 @@ class WorkResponse(BaseModel):
 
 
 def format_datetime(dt: datetime) -> str:
-    return dt.strftime("%d.%m.%Y %H:%M") if dt else None
+    return dt.strftime("%d.%m.%Y %H:%M") if dt else ""
 
 
 def format_date(dt: date) -> str:

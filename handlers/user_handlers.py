@@ -272,6 +272,7 @@ async def dinner_end_input(message: Message, state: FSMContext, bot: Bot):
             work.set('total_dinner', work.total_dinner + dinner_time)
             work.set('dinner_start', None)
             work.set('dinner_end', None)
+            work.set('last_reaction', None)
             work_is_started = check_work_is_started(user.id)
             work_is_ended = check_work_is_ended(user.id)
             is_vocation = check_is_vocation(user.id)
