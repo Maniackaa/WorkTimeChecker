@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     USE_REDIS: bool = False
     LOG_TO_FILE: bool = False
     GROUP_ID: str
-    model_config = SettingsConfigDict(env_file=BASE_DIR / ".env")
+    model_config = SettingsConfigDict(
+        env_file=BASE_DIR / ".env",
+        extra="ignore",
+    )
 
     @property
     def tz(self):

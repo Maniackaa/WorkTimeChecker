@@ -70,6 +70,14 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Local app databases (Telegram / MAX bots, dev copies)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+
 # Flask stuff:
 instance/
 .webassets-cache
