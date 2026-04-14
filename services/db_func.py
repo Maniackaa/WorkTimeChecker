@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from config.bot_settings import logger, settings
 from database.db import Session, User, Work
-from keyboards.keyboards import evening_menu, get_menu
+from keyboards.keyboards import get_menu
 
 
 def check_user(id):
@@ -37,11 +37,10 @@ def get_or_create_user(user) -> User:
         with session:
             tg_id = str(user.id)
             username = user.username
-            # logger.debug(f'username {username}')
             old_user = check_user(tg_id)
             if old_user:
                 # logger.debug('Пользователь есть в базе')
-                if not old_user.username:
+                if not old_user.username or username != old_user.username:
                     old_user.username = username
                 if not old_user.fio:
                     old_user.fio = user.full_name
@@ -92,14 +91,8 @@ async def end_work(user: User, date, end_time, bot):
         with session:
             q = select(Work).where(Work.user_id == user.id).where(Work.date == date)
             work = session.execute(q).scalars().one_or_none()
-            today = datetime.datetime.today()
-            if not work:
-                work = Work(user_id=user.id, date=today, end=end_time)
-                logger.info(f'Создано новое конец смены {user} {end_time}')
-                session.add(work)
-            else:
-                logger.info(f'Обновлено конец смены {user} {end_time}')
-                work.end = end_time
+            logger.info(f'Обновлено конец смены {user} {end_time}')
+            work.end = end_time
             session.commit()
 
         work = get_today_work(user.id)
@@ -108,7 +101,7 @@ async def end_work(user: User, date, end_time, bot):
         await bot.send_message(chat_id=user.tg_id, text=f'Смена окончена: {end_time}')
 
     except Exception as e:
-        raise e
+        logger.warning(f'Ошибка при окончании смены для {user} {date}, {end_time}')
 
 
 def get_today_work(user_id: int) -> Work:
@@ -125,27 +118,54 @@ def get_today_work(user_id: int) -> Work:
 
 def morning_users():
     # Юзеры, которые сегодня еще не вышли на работу
-    session = Session(expire_on_commit=False)
-    today = datetime.date.today()
-    with session:
-        stmt = select(User).where(
-            and_(
-                User.is_worked == 1,
-                or_(
-                    User.vacation_to == None,
-                    User.vacation_to <= today
-                ),
-            )
-        ).outerjoin(Work, and_(Work.user_id == User.id, Work.date == today))
+    try:
+        session = Session(expire_on_commit=False)
+        today = datetime.date.today()
+        with session:
+            stmt = select(User).where(
+                and_(
+                    User.is_worked == 1,
+                    or_(
+                        User.vacation_to == None,
+                        User.vacation_to <= today
+                    ),
+                )
+            ).outerjoin(Work, and_(Work.user_id == User.id, Work.date == today))
 
-        users = session.scalars(stmt).all()
-        available_users = [user for user in users if not user.works or (user.works and user.works[0].begin is None)]
+            users = session.scalars(stmt).all()
+            available_users = []
+            for user in users:
+                if not user.works:
+                    available_users.append(user)
+                else:
+                    last_work = user.works[-1]
+                    # Если сегодня нет работы или есть, но не началась
+                    if last_work.date != today or (last_work.date == today and not last_work.begin):
+                        available_users.append(user)
 
-    logger.debug(f'Юзеры, которые сегодня еще не вышли на работу: {available_users}')
-    return available_users
+        logger.debug(f'Юзеры, которые сегодня еще не вышли на работу: {available_users}')
+        return available_users
+    except Exception as e:
+        logger.error(e)
 
 
 def evening_users():
+    session = Session(expire_on_commit=False)
+    today = datetime.date.today()
+    with session:
+        query = (
+            session.query(User)
+            .join(Work, User.id == Work.user_id, isouter=True)
+            .filter(Work.begin.is_not(None))
+            .filter(Work.end.is_(None))
+            .filter(Work.date == today)
+            .options(joinedload(User.works))
+        )
+        users_with_empty_work_end_today = query.all()
+    logger.debug(f'Юзеры, которые {today} еще не закончили работу ({len(users_with_empty_work_end_today)}): {users_with_empty_work_end_today}')
+    return users_with_empty_work_end_today
+
+def all_evening_users():
     session = Session(expire_on_commit=False)
     today = datetime.date.today()
     # logger.info(f'Юзеры, которые {today} еще не закончили работу')
@@ -197,12 +217,15 @@ def check_work_is_ended(user_id: int):
     with session:
         q = (session.query(Work).filter(Work.user_id == user_id).filter(Work.date == today))
         work = q.one_or_none()
-        logger.info(f'work_is_ended: {work}')
+
         if not work:
+            logger.info(f'Не начинал работать')
             return False
         if work.end:
+            logger.info(f'work_is_ended: {work.end}')
             return True
         else:
+            logger.info(f'work_is_ended: {work.end}')
             return False
 
 
@@ -236,53 +259,6 @@ async def delete_msg(bot: Bot, chat_id, message_id):
         await bot.delete_message(chat_id=chat_id, message_id=message_id, request_timeout=3)
     except Exception as e:
         logger.warning(e)
-
-
-async def evening_send(bot):
-    # Вечерняя отправка если не ушел
-    logger.info('# Вечерняя отправка если не ушел')
-    users_to_send = evening_users()
-    print(f'users_to_send: {users_to_send}')
-    text = f'Рабочий день окончен'
-    evening_kb = evening_menu()
-    for user in users_to_send:
-        try:
-
-            work_is_started = check_work_is_started(user.id)
-            work_is_ended = check_work_is_ended(user.id)
-            is_vocation = check_is_vocation(user.id)
-            dinner_start = check_dinner_start(user.id)
-            await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
-            if dinner_start:
-                logger.info(f'{user} на перерыве')
-                menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
-                msg = await bot.send_message(chat_id=user.tg_id, text='Рабочий день окончен? Закончите перерыв!', reply_markup=menu)
-                user.set('last_message', msg.message_id)
-                return
-            else:
-                msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=evening_kb)
-                logger.info(f'Рабочий день окончен? {user} отправлен')
-                user.set('last_message', msg.message_id)
-            await asyncio.sleep(0.1)
-        except TelegramForbiddenError as err:
-            logger.warning(f'Ошибка отправки сообщения {user}: {err}')
-        except Exception as err:
-            logger.error(f'Ошибка отправки сообщения {user}: {err}', exc_info=False)
-
-
-async def delay_send(user_id, bot):
-    user = get_user_from_id(user_id)
-    logger.info(f'Отправка вечернего сообщения для {user} если еще не закончил')
-    work = get_today_work(user.id)
-    if user.last_message:
-        await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
-    if not work.end:
-        menu = evening_menu()
-        text = f'Рабочий день окончен'
-        msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
-        user.set('last_message', msg.message_id)
-    else:
-        logger.info(f'{user} Уже закончил')
 
 
 def format_message(user: User, work: Work):
@@ -359,12 +335,18 @@ def calculate_work_durations(user_id: int):
 async def main():
     # x = morning_users()
     # print(x)
-    # y = evening_users()
-    # print(y)
+    y = evening_users()
+    print(y)
     # a = calculate_work_durations(1)
     # print(a)
     b = vocation_users()
     print(b)
+    x = calculate_work_durations(1)
+    print(x)
+    work = get_today_work(1)
+    user = get_user_from_id(1)
+    text = format_message(user, work)
+    print(text)
 
 
 

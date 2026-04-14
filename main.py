@@ -1,13 +1,11 @@
 import asyncio
 import datetime
-import time
 
 from aiogram.exceptions import TelegramForbiddenError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import ExceptionTypeFilter
 from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
@@ -17,8 +15,9 @@ from apscheduler.triggers.date import DateTrigger
 from config.bot_settings import logger, settings
 from handlers import user_handlers, action_handlers
 from handlers.user_handlers import delete_msg
-from keyboards.keyboards import get_menu, evening_menu
-from services.db_func import morning_users, evening_users, evening_send, get_today_work, end_work, vocation_users
+from keyboards.keyboards import get_menu
+from services.db_func import morning_users, evening_users, get_today_work, end_work, vocation_users, \
+    all_evening_users, check_work_is_started, check_work_is_ended, check_is_vocation, check_dinner_start
 
 
 async def set_commands(bot: Bot):
@@ -52,52 +51,103 @@ async def set_commands(bot: Bot):
 
 async def morning_send(bot):
     # Утренняя отправка если не вышел
-    users_to_send = morning_users()
+    try:
+        users_to_send = morning_users()
+        logger.info(f'users_to_send: {users_to_send}')
+        text = f'Вы на рабочем месте?  Начинаем работу?'
+        menu = get_menu(1, work_is_started=False, work_is_ended=False)
+        for user in users_to_send:
+            try:
+                if user.last_message:
+                    await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+                msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
+                user.set('last_message', msg.message_id)
+                logger.info(f'Вы на рабочем месте?  Начинаем работу? {user} отправлен')
+                await asyncio.sleep(0.1)
+            except TelegramForbiddenError as err:
+                logger.warning(f'Ошибка отправки сообщения {user}: {err}')
+            except Exception as err:
+                logger.error(f'Ошибка отправки сообщения {user}: {err}', exc_info=False)
+    except Exception as err:
+        logger.error(err)
+
+
+async def evening_send(bot):
+    # Вечерняя отправка если не ушел
+    logger.info('# Вечерняя отправка если не ушел')
+    users_to_send = evening_users()
     print(f'users_to_send: {users_to_send}')
-    text = f'Вы на рабочем месте?  Начинаем работу?'
-    menu = get_menu(1, work_is_started=False, work_is_ended=False)
+    text = f'Рабочий день окончен'
     for user in users_to_send:
         try:
+            logger.info(f'Отправка сообщения в 17.00 {user}')
+            work_is_started = check_work_is_started(user.id)
+            work_is_ended = check_work_is_ended(user.id)
+            is_vocation = check_is_vocation(user.id)
+            dinner_start = check_dinner_start(user.id)
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
-            msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
-            user.set('last_message', msg.message_id)
-            logger.info(f'Вы на рабочем месте?  Начинаем работу? {user} отправлен')
+            menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+            if dinner_start:
+                logger.info(f'{user} на перерыве')
+                msg = await bot.send_message(chat_id=user.tg_id, text='Рабочий день окончен? Закончите перерыв!', reply_markup=menu)
+                user.set('last_message', msg.message_id)
+                continue
+            else:
+                msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
+                logger.info(f'Рабочий день окончен? {user} отправлен')
+                user.set('last_message', msg.message_id)
             await asyncio.sleep(0.1)
         except TelegramForbiddenError as err:
             logger.warning(f'Ошибка отправки сообщения {user}: {err}')
         except Exception as err:
             logger.error(f'Ошибка отправки сообщения {user}: {err}', exc_info=False)
 
-
-async def end_task(bot, scheduler):
+async def end_task(bot):
     # Завершение дня.
     logger.info(f'Завершение дня')
     today = datetime.date.today()
     users_with_empty_work_end_today = evening_users()
     logger.info(f'На смене: {users_with_empty_work_end_today}')
-    now = datetime.datetime.now()
     for user in users_with_empty_work_end_today:
+        # Юзеры которые еще не закончили смену
+        logger.info(f'{user} не закончил смену')
         work = get_today_work(user.id)
-        if work.last_reaction and now - work.last_reaction > datetime.timedelta(hours=1):
-            logger(f'{user} Прошло боле часа с последней реакции')
-            await end_work(user, today, work.last_reaction + datetime.timedelta(hours=1), bot)
-            await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
         if not work.last_reaction:
             logger.info(f'{user} Реакции не было. Закрываем в 17.00')
-            await end_work(user, today, datetime.datetime.combine(today, datetime.time(17, 0)), bot)
+            end_time1 = datetime.datetime.combine(today, datetime.time(17, 0))
+            end_time2 = work.begin
+            end_time = max(end_time1, end_time2)
+            logger.info(f'{user} Реакции не было. Закрываем в 17.00 {end_time}')
+            await end_work(user, today, end_time, bot)
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+        else:
+            logger.info(f'{user} есть реакция в {work.last_reaction}.')
 
     # Чё осталось
-    users = evening_users()
+    users = all_evening_users()
     logger.info(f'Осталось на смене: {users}')
     if users:
-        if now.time() > datetime.time(23, 00):
-            logger(f'Хватит работать!')
-            for user in users:
-                await end_work(user, today, datetime.datetime.combine(today, datetime.time(23, 00)), bot)
-        else:
-            run_time = datetime.datetime.now() + datetime.timedelta(minutes=15)
-            scheduler.add_job(end_task, DateTrigger(run_date=run_time), args=(bot, scheduler))
+        logger.info(f'Хватит работать!')
+        for user in users:
+            logger.info(f'{user} еще на смене')
+            work = get_today_work(user.id)
+
+            # если на обеде:
+            if work.dinner_start and not work.dinner_end:
+                logger.info(f'{user} на обеде')
+                # Время окончания смены считаем уходом на обед.
+                await end_work(user, today, work.dinner_start, bot)
+                work.set('dinner_start', None)
+                continue
+
+            # Если не на обеде
+            if work.last_reaction:
+                logger.info(f'{user} есть реакция {work.last_reaction}')
+                endtime = work.last_reaction
+            else:
+                logger.info(f'{user} нет реакции')
+                endtime = datetime.datetime.combine(today, datetime.time(17, 00))
+            await end_work(user, today, endtime, bot)
 
 
 async def vocation_task(bot: Bot):
@@ -115,7 +165,7 @@ async def vocation_task(bot: Bot):
 
 
 def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
-    # scheduler.add_job(morning_send, "interval", seconds=5, args=(bot,))
+    # scheduler.add_job(morning_send, "interval", seconds=10, args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=7, minute=59), args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=8, minute=15), args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=8, minute=30), args=(bot,))
@@ -124,8 +174,10 @@ def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
 
     scheduler.add_job(evening_send, CronTrigger(hour=17, minute=00), args=(bot,))
     # scheduler.add_job(evening_send, CronTrigger(hour=14, minute=56), args=(bot,))
-    # scheduler.add_job(evening_send, "interval", seconds=60, args=(bot,))
-    scheduler.add_job(end_task, CronTrigger(hour=18, minute=1, second=0), args=(bot, scheduler))
+    # scheduler.add_job(evening_send, "interval", seconds=5, args=(bot,))
+
+    scheduler.add_job(end_task, CronTrigger(hour=23, minute=55, second=0), args=(bot,))
+    # scheduler.add_job(end_task, "interval", seconds=15, args=(bot,))
     scheduler.add_job(vocation_task, CronTrigger(hour=18, minute=0, second=0), args=(bot,))
     # scheduler.add_job(vocation_task, "interval", seconds=5, args=(bot,))
 
@@ -150,16 +202,15 @@ async def main():
         dp.include_router(action_handlers.router)
 
         await set_commands(bot)
-        # await bot.get_updates(offset=-1)
         await bot.delete_webhook(drop_pending_updates=True)
-        await bot.send_message(chat_id=settings.ADMIN_IDS[0], text='Бот запущен')
 
         scheduler = AsyncIOScheduler()
         set_scheduled_jobs(scheduler, bot)
         scheduler.start()
+        # await asyncio.create_task(morning_send(bot))
         # await asyncio.create_task(evening_send(bot))
 
-        # await bot.send_message(chat_id=config.tg_bot.GROUP_ID, text='Бот запущен', reply_markup=begin_kb)
+        await bot.send_message(chat_id=settings.ADMIN_IDS[0], text='Бот запущен')
         await dp.start_polling(bot, config=settings)
     finally:
         await dp.fsm.storage.close()

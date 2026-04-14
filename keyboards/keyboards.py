@@ -1,3 +1,5 @@
+import datetime
+
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup,\
     InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
@@ -33,44 +35,119 @@ def custom_kb(width: int, buttons_dict: dict, back='', group='', menus='') -> In
     return kb_builder.as_markup()
 
 
+work_start_button = InlineKeyboardButton(text=f'Приступить к работе', callback_data='work_start')
+vocation_button = InlineKeyboardButton(text=f'Не работаю', callback_data='vocation_start')
+work_end_button_question = InlineKeyboardButton(text=f'❌ Закончить смену?', callback_data='work_end_question')
+work_end_button = InlineKeyboardButton(text=f'❌ Закончить смену', callback_data='confirm_work_end')
+work_end_button_15 = InlineKeyboardButton(text=f'⏱️ Закончу через 15 минут', callback_data='work_delay_15')
+work_end_button_30 = InlineKeyboardButton(text=f'⏰ Закончу через 30 минут', callback_data='work_delay_30')
+work_end_button_60 = InlineKeyboardButton(text=f'🕰  Закончу через час', callback_data='work_delay_60')
+work_end_button_manual = InlineKeyboardButton(text=f'⌚️ Ввести время окончания смены', callback_data='work_end_manual')
+work_continue = InlineKeyboardButton(text=f'✅ Работать дальше ', callback_data='work_continue')
+
+dinner = InlineKeyboardButton(text=f'✅ Перерыв', callback_data='dinner_start')
+dinner_end = InlineKeyboardButton(text=f'✅ Закончить перерыв', callback_data='dinner_end')
+dinner_end_input = InlineKeyboardButton(text=f'⌚️ Ввести время окончания перерыва ', callback_data='dinner_end_input')
+vocation_end = InlineKeyboardButton(text=f'Выйти на работу', callback_data='vocation_end')
+
+
+def get_dinner_menu(width: int= 1, work_is_started=True, work_is_ended=False, is_vocation=False, dinner_started=False):
+    kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
+    buttons = []
+
+    buttons.append(dinner_end)
+    buttons.append(dinner_end_input)
+    kb_builder.row(*buttons, width=width)
+    return kb_builder.as_markup()
+
+
+def get_after_start_menu(width: int= 1, work_is_started=True, work_is_ended=False, is_vocation=False, dinner_started=False):
+    kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
+    buttons = []
+    buttons.append(dinner)
+    buttons.append(work_end_button_question)
+    kb_builder.row(*buttons, width=width)
+    return kb_builder.as_markup()
+
+
+def get_confirm_end_menu(width: int= 1, work_is_started=True, work_is_ended=False, is_vocation=False, dinner_started=False):
+    kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
+    buttons = []
+    buttons.append(work_end_button)
+    buttons.append(work_continue)
+    kb_builder.row(*buttons, width=width)
+    return kb_builder.as_markup()
+
+
+def menu_after_work_start(width: int= 1, work_is_started=True, work_is_ended=False, is_vocation=False, dinner_started=False):
+    kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
+    buttons = []
+    buttons.append(dinner)
+    buttons.append(work_continue)
+    kb_builder.row(*buttons, width=width)
+    return kb_builder.as_markup()
+
+
+
 def get_menu(width: int, work_is_started=False, work_is_ended=False, is_vocation=False, dinner_started=False) -> InlineKeyboardMarkup:
     kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
     buttons = []
     logger.info(f'work_is_started: {bool(work_is_started)}, work_is_ended: {bool(work_is_ended)},  vocation: {bool(is_vocation)}, dinner_started: {dinner_started}')
+    now = datetime.datetime.now()
+
     if work_is_started and work_is_ended:
         return None
-    if not work_is_started and not work_is_ended and not is_vocation and not dinner_started:
-        work_start = InlineKeyboardButton(text=f'Приступить к работе', callback_data='work_start')
-        vocation = InlineKeyboardButton(text=f'Не работаю', callback_data='vocation_start')
-        buttons.append(work_start)
-        buttons.append(vocation)
-    if work_is_started and not work_is_ended and not dinner_started:
-        work_end = InlineKeyboardButton(text=f'Закончить смену', callback_data='work_end')
-        buttons.append(work_end)
+
     if work_is_started and not dinner_started:
-        dinner = InlineKeyboardButton(text=f'Перерыв', callback_data='dinner_start')
+        # Смену начал, не на обеде
+        logger.info(f'work_is_started and not dinner_started')
         buttons.append(dinner)
+
+    if not work_is_started and not work_is_ended and not is_vocation and not dinner_started:
+        # На смену еще не вышел, не в отпуске и не на обеде
+        logger.info(f'not work_is_started and not work_is_ended and not is_vocation and not dinner_started')
+        buttons.append(work_start_button)
+        buttons.append(vocation_button)
+    if work_is_started and not work_is_ended and not dinner_started:
+        # На смене, не на обеде
+        logger.info(f'work_is_started and not work_is_ended and not dinner_started')
+        if now.hour >= 17:
+            buttons.append(work_end_button_15)
+            buttons.append(work_end_button_30)
+            buttons.append(work_end_button_60)
+        buttons.append(work_end_button_manual)
+        buttons.append(work_end_button_question)
+
+
     elif work_is_started and dinner_started:
-        dinner_end = InlineKeyboardButton(text=f'Закончить перерыв', callback_data='dinner_end')
-        dinner_end_input = InlineKeyboardButton(text=f'Перерыв уже окончен', callback_data='dinner_end_input')
+        # На смене, на обеде
+        logger.info(f'work_is_started and dinner_started')
         buttons.append(dinner_end)
         buttons.append(dinner_end_input)
+
     if is_vocation:
-        logger.info(f'vocation')
-        vocation_end = InlineKeyboardButton(text=f'Выйти на работу', callback_data='vocation_end')
+        # В отпуске
+        logger.info(f'is_vocation')
         buttons.append(vocation_end)
 
     kb_builder.row(*buttons, width=width)
     return kb_builder.as_markup()
 
 
-def evening_menu():
-    kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
-    work_end = InlineKeyboardButton(text=f'Закончить смену', callback_data='work_end')
-    b2 = InlineKeyboardButton(text=f'Еще 15 минут', callback_data='work_delay_15')
-    b3 = InlineKeyboardButton(text=f'Еще час', callback_data='work_delay_60')
-    kb_builder.row(work_end, b2, b3, width=1)
-    return kb_builder.as_markup()
+# def evening_menu(dinner_started=False):
+#     kb_builder: InlineKeyboardBuilder = InlineKeyboardBuilder()
+#     work_end = InlineKeyboardButton(text=f'Закончить смену', callback_data='work_end')
+#     b2 = InlineKeyboardButton(text=f'Еще 15 минут', callback_data='work_delay_15')
+#     b3 = InlineKeyboardButton(text=f'Еще час', callback_data='work_delay_60')
+#     if dinner_started:
+#         dinner_buton = InlineKeyboardButton(text=f'Перерыв', callback_data='dinner_start')
+#
+#     else:
+#         dinner_buton = InlineKeyboardButton(text=f'Закончить перерыв', callback_data='dinner_end')
+#
+#
+#     kb_builder.row(work_end, b2, b3, dinner_buton, width=1)
+#     return kb_builder.as_markup()
 
 
 PREFIX = '.Text'
