@@ -4,7 +4,7 @@ import time
 from typing import List
 
 from sqlalchemy import create_engine, ForeignKey, String, DateTime, \
-    Integer, select, delete, Text, Date, inspect
+    Integer, select, delete, Text, Date, inspect, text
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -66,6 +66,7 @@ class Work(Base):
     begin: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     end: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     last_reaction: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
+    evening_prompt_at: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     dinner_start: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     dinner_end: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     total_dinner: Mapped[int] = mapped_column(Integer(), default=0)
@@ -92,6 +93,21 @@ class Timer:
 if not database_exists(db_url):
     create_database(db_url)
 Base.metadata.create_all(engine)
+
+
+def _migrate_works_evening_prompt() -> None:
+    insp = inspect(engine)
+    if not insp.has_table("works"):
+        return
+    cols = {c["name"] for c in insp.get_columns("works")}
+    if "evening_prompt_at" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE works ADD COLUMN evening_prompt_at DATETIME"))
+    logger.info("БД: добавлено поле works.evening_prompt_at")
+
+
+_migrate_works_evening_prompt()
 
 # Добавление юзеров
 def add_users_if_not_exists(session, users_data):

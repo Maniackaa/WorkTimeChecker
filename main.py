@@ -81,21 +81,25 @@ async def evening_send(bot):
     for user in users_to_send:
         try:
             logger.info(f'Отправка сообщения в 17.00 {user}')
+            work = get_today_work(user.id)
             work_is_started = check_work_is_started(user.id)
             work_is_ended = check_work_is_ended(user.id)
             is_vocation = check_is_vocation(user.id)
             dinner_start = check_dinner_start(user.id)
             await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
             menu = get_menu(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+            now_ep = datetime.datetime.now().replace(microsecond=0)
             if dinner_start:
                 logger.info(f'{user} на перерыве')
                 msg = await bot.send_message(chat_id=user.tg_id, text='Рабочий день окончен? Закончите перерыв!', reply_markup=menu)
                 user.set('last_message', msg.message_id)
+                work.set('evening_prompt_at', now_ep)
                 continue
             else:
                 msg = await bot.send_message(chat_id=user.tg_id, text=text, reply_markup=menu)
                 logger.info(f'Рабочий день окончен? {user} отправлен')
                 user.set('last_message', msg.message_id)
+                work.set('evening_prompt_at', now_ep)
             await asyncio.sleep(0.1)
         except TelegramForbiddenError as err:
             logger.warning(f'Ошибка отправки сообщения {user}: {err}')
@@ -109,17 +113,25 @@ async def end_task(bot):
     users_with_empty_work_end_today = evening_users()
     logger.info(f'На смене: {users_with_empty_work_end_today}')
     for user in users_with_empty_work_end_today:
-        # Юзеры которые еще не закончили смену
         logger.info(f'{user} не закончил смену')
         work = get_today_work(user.id)
         if not work.last_reaction:
-            logger.info(f'{user} Реакции не было. Закрываем в 17.00')
-            end_time1 = datetime.datetime.combine(today, datetime.time(17, 0))
-            end_time2 = work.begin
-            end_time = max(end_time1, end_time2)
-            logger.info(f'{user} Реакции не было. Закрываем в 17.00 {end_time}')
-            await end_work(user, today, end_time, bot)
-            await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+            if check_dinner_start(user.id) and work.dinner_start:
+                logger.info(f'{user}: на перерыве, реакции нет — закрываем по времени ухода на перерыв')
+                await end_work(user, today, work.dinner_start, bot)
+                work.set('dinner_start', None)
+                await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+            elif work.evening_prompt_at:
+                logger.info(f'{user} Реакции не было после вечернего — условное окончание в 17.00')
+                end_time1 = datetime.datetime.combine(today, datetime.time(17, 0))
+                end_time2 = work.begin
+                end_time = max(end_time1, end_time2) if work.begin else end_time1
+                await end_work(user, today, end_time, bot)
+                await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
+            else:
+                logger.info(f'{user} Вечернее сообщение не отмечено как отправленное — закрытие по фактическому времени')
+                await end_work(user, today, datetime.datetime.now().replace(microsecond=0), bot)
+                await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
         else:
             logger.info(f'{user} есть реакция в {work.last_reaction}.')
 

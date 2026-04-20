@@ -6,7 +6,7 @@ import logging
 import time
 from typing import List
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, create_engine, inspect, select
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from sqlalchemy_utils import create_database, database_exists
 
@@ -80,6 +80,7 @@ class WorkMax(BaseMax):
     begin: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     end: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     last_reaction: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
+    evening_prompt_at: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     dinner_start: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     dinner_end: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     total_dinner: Mapped[int] = mapped_column(Integer(), default=0)
@@ -88,6 +89,21 @@ class WorkMax(BaseMax):
 if not database_exists(db_url):
     create_database(db_url)
 BaseMax.metadata.create_all(engine)
+
+
+def _migrate_works_max_evening_prompt() -> None:
+    insp = inspect(engine)
+    if not insp.has_table("works_max"):
+        return
+    cols = {c["name"] for c in insp.get_columns("works_max")}
+    if "evening_prompt_at" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE works_max ADD COLUMN evening_prompt_at DATETIME"))
+    log.info("БД MAX: добавлено поле works_max.evening_prompt_at")
+
+
+_migrate_works_max_evening_prompt()
 
 
 def add_users_max_if_not_exists(session_factory, users_data: dict[str, str]) -> None:

@@ -10,9 +10,15 @@ from apscheduler.triggers.date import DateTrigger
 from maxapi import Dispatcher
 from maxapi.types import Command, MessageCallback, MessageCreated
 
-from config.max_settings import max_settings
+from api import format_datetime
 from database.db_max import Timer
-from keyboards.keyboards_max import custom_kb_max, get_menu_max
+from keyboards.keyboards_max import (
+    custom_kb_max,
+    get_after_start_menu_max,
+    get_confirm_end_menu_max,
+    get_dinner_menu_max,
+    get_menu_max,
+)
 from max_app import context
 from max_app.messaging import mid_from_response, send_message
 from max_app.utils import (
@@ -22,6 +28,7 @@ from max_app.utils import (
     is_private_work_chat,
 )
 from services.db_func_max import (
+    _broadcast_summary_text_max,
     check_dinner_start_max,
     check_is_vocation_max,
     check_work_is_ended_max,
@@ -29,6 +36,7 @@ from services.db_func_max import (
     delay_send_max,
     delete_msg_max,
     end_work_max,
+    format_message_max,
     get_or_create_user_max,
     get_today_work_max,
     start_work_max,
@@ -37,7 +45,7 @@ from services.db_func_max import (
 log = logging.getLogger(__name__)
 
 processed_callbacks: set[str] = set()
-# FSM: user_id -> "vacation" | "dinner_end"
+# FSM: user_id -> "vacation" | "dinner_end" | "work_end"
 max_user_fsm: dict[int, str] = {}
 
 
@@ -165,19 +173,28 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                 await send_message(s, user_id=int(user.max_user_id), text="Вы уже сегодня отработали")
                 return
             start_work_max(user.id, today, now)
+            after_menu = get_after_start_menu_max(1)
+            await send_message(s, user_id=int(user.max_user_id), text=f"Смена начата: {now}")
+            res = await send_message(s, user_id=int(user.max_user_id), text="Выберете действие:", buttons=after_menu)
+            mid_new = mid_from_response(res)
+            if mid_new:
+                user.set("last_message", mid_new)
+
+        elif payload == "work_end_question":
+            menu = get_confirm_end_menu_max(1)
+            await send_message(s, user_id=int(user.max_user_id), text="Завершить смену?", buttons=menu)
+
+        elif payload == "work_continue":
+            log.info("MAX work_continue %s", user)
             work_is_started = check_work_is_started_max(user.id)
             work_is_ended = check_work_is_ended_max(user.id)
             is_vocation = check_is_vocation_max(user.id)
             dinner_start = check_dinner_start_max(user.id)
             menu_kb = get_menu_max(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
-            await send_message(s, user_id=int(user.max_user_id), text=f"Смена начата: {now}")
-            res = await send_message(s, user_id=int(user.max_user_id), text="Выберете действие:", buttons=menu_kb)
-            mid_new = mid_from_response(res)
-            if mid_new:
-                user.set("last_message", mid_new)
+            await send_message(s, user_id=int(user.max_user_id), text="Закончить смену?", buttons=menu_kb)
 
-        elif payload == "work_end":
-            log.info("MAX work_end %s", user)
+        elif payload in ("confirm_work_end", "work_end"):
+            log.info("MAX confirm_work_end %s", user)
             work = get_today_work_max(user.id)
             work_is_started = check_work_is_started_max(user.id)
             work_is_ended = check_work_is_ended_max(user.id)
@@ -198,19 +215,29 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
             delay = int(payload.split("work_delay_")[1])
             log.info("MAX work_delay %s мин. %s", delay, user)
             work = get_today_work_max(user.id)
+            work_is_started = check_work_is_started_max(user.id)
             work_is_ended = check_work_is_ended_max(user.id)
+            is_vocation = check_is_vocation_max(user.id)
+            dinner_start = check_dinner_start_max(user.id)
+            menu_kb = get_menu_max(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
             if work_is_ended:
                 await send_message(s, user_id=int(user.max_user_id), text=f"Смена окончена: {work.end}")
                 return
             if user.last_message:
                 with Timer("delete_msg_max"):
                     await delete_msg_max(s, user.last_message)
-            menu_kb = custom_kb_max(1, {"Закончить смену": "work_end"})
-            res = await send_message(s, user_id=int(user.max_user_id), text="Рабочий день окончен", buttons=menu_kb)
+            target_time = datetime.datetime.now()
+            target_time_str = format_datetime(target_time)
+            res = await send_message(
+                s,
+                user_id=int(user.max_user_id),
+                text=f"Планируемое врямя окончания: {target_time_str}",
+                buttons=menu_kb,
+            )
             mid_new = mid_from_response(res)
             if mid_new:
                 user.set("last_message", mid_new)
-            work.set("last_reaction", datetime.datetime.now())
+            work.set("last_reaction", target_time)
             run_time = datetime.datetime.now() + datetime.timedelta(minutes=delay)
             sched = AsyncIOScheduler()
 
@@ -223,11 +250,19 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
             sched.start()
             log.info("MAX delay_send для %s в %s", user, run_time)
 
+        elif payload == "work_end_manual":
+            await send_message(
+                s,
+                user_id=int(user.max_user_id),
+                text="Введите время окончания работы: ЧЧ:ММ",
+            )
+            max_user_fsm[event.callback.user.user_id] = "work_end"
+
         elif payload == "vocation_start":
             await send_message(
                 s,
                 user_id=int(user.max_user_id),
-                text="Ведите дату (дд.мм.гггг) когда планируете вернуться к работе",
+                text="Введите дату (дд.мм.гггг) когда планируете вернуться к работе",
             )
             max_user_fsm[event.callback.user.user_id] = "vacation"
 
@@ -240,12 +275,10 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
             if not work.dinner_start:
                 now = datetime.datetime.now().replace(microsecond=0)
                 work.set("dinner_start", now)
-                work_is_started = check_work_is_started_max(user.id)
-                work_is_ended = check_work_is_ended_max(user.id)
-                is_vocation = check_is_vocation_max(user.id)
-                menu = get_menu_max(1, work_is_started, work_is_ended, is_vocation, dinner_started=True)
+                work.set("last_reaction", now)
+                dinner_menu = get_dinner_menu_max(1)
                 await send_message(s, user_id=int(user.max_user_id), text=f"Перерыв начат: {now}")
-                res = await send_message(s, user_id=int(user.max_user_id), text="Закончите перерыв", buttons=menu)
+                res = await send_message(s, user_id=int(user.max_user_id), text="Закончите перерыв", buttons=dinner_menu)
                 mid_new = mid_from_response(res)
                 if mid_new:
                     user.set("last_message", mid_new)
@@ -262,6 +295,7 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                 work.set("total_dinner", work.total_dinner + dinner_time)
                 work.set("dinner_start", None)
                 work.set("dinner_end", None)
+                work.set("last_reaction", None)
                 work_is_started = check_work_is_started_max(user.id)
                 work_is_ended = check_work_is_ended_max(user.id)
                 is_vocation = check_is_vocation_max(user.id)
@@ -277,7 +311,7 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
             await send_message(
                 s,
                 user_id=int(user.max_user_id),
-                text="Ведите время окончания перерыва: ЧЧ:ММ",
+                text="Введите время окончания перерыва: ЧЧ:ММ",
             )
             max_user_fsm[event.callback.user.user_id] = "dinner_end"
 
@@ -298,7 +332,32 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
         if not s:
             return
 
-        if state == "vacation":
+        if state == "work_end":
+            try:
+                user = get_or_create_user_max(event.message.sender)
+                if not user:
+                    max_user_fsm.pop(uid, None)
+                    return
+                work = get_today_work_max(user.id)
+                if work.begin and not work.end:
+                    today = datetime.date.today()
+                    time_obj = datetime.datetime.strptime(text_raw, "%H:%M").time()
+                    work_end_dt = datetime.datetime.combine(today, time_obj)
+                    if work_end_dt > datetime.datetime.now():
+                        await send_message(s, user_id=uid, text="Время окончания не может быть позже чем сейчас")
+                        max_user_fsm.pop(uid, None)
+                        return
+                    await send_message(s, user_id=uid, text=f"Смена окончена: {format_datetime(work_end_dt)}")
+                    work.set("end", work_end_dt)
+                    work_ref = get_today_work_max(user.id)
+                    text_out = format_message_max(user, work_ref)
+                    await _broadcast_summary_text_max(s, text_out)
+                max_user_fsm.pop(uid, None)
+            except ValueError:
+                await send_message(s, user_id=uid, text="Введите время в формате ЧЧ:ММ")
+                max_user_fsm.pop(uid, None)
+
+        elif state == "vacation":
             try:
                 date_obj = datetime.datetime.strptime(text_raw, "%d.%m.%Y").date()
                 user = get_or_create_user_max(event.message.sender)
@@ -316,7 +375,7 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                         user.set("last_message", mid)
             except ValueError:
                 log.warning("Неверная дата отпуска: %s", text_raw)
-                await send_message(s, user_id=uid, text="Ведите дату в формате дд.мм.гггг")
+                await send_message(s, user_id=uid, text="Введите дату в формате дд.мм.гггг")
             finally:
                 max_user_fsm.pop(uid, None)
 
@@ -340,6 +399,7 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                 work.set("total_dinner", work.total_dinner + dinner_time)
                 work.set("dinner_start", None)
                 work.set("dinner_end", None)
+                work.set("last_reaction", None)
                 work_is_started = check_work_is_started_max(user.id)
                 work_is_ended = check_work_is_ended_max(user.id)
                 is_vocation = check_is_vocation_max(user.id)

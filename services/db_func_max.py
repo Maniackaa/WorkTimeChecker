@@ -3,13 +3,12 @@ import datetime
 import logging
 
 import aiohttp
-from apscheduler.triggers.date import DateTrigger
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import joinedload
 
 from config.max_settings import max_settings
 from database.db_max import SessionMax, UserMax, WorkMax
-from keyboards.keyboards_max import evening_menu_max, get_menu_max
+from keyboards.keyboards_max import get_menu_max
 from max_app.messaging import delete_message, mid_from_response, send_message
 
 log = logging.getLogger(__name__)
@@ -151,6 +150,11 @@ def evening_users_max() -> list[UserMax]:
     return users
 
 
+def all_evening_users_max() -> list[UserMax]:
+    """То же множество, что evening_users_max (как all_evening_users в TG)."""
+    return evening_users_max()
+
+
 def vocation_users_max() -> list[UserMax]:
     session = SessionMax(expire_on_commit=False)
     today = datetime.date.today()
@@ -212,14 +216,15 @@ async def evening_send_max(session: aiohttp.ClientSession) -> None:
     users_to_send = evening_users_max()
     log.info("MAX вечер: к отправке %s чел.", len(users_to_send))
     text = "Рабочий день окончен"
-    evening_kb = evening_menu_max()
     for user in users_to_send:
         try:
+            work = get_today_work_max(user.id)
             work_is_started = check_work_is_started_max(user.id)
             work_is_ended = check_work_is_ended_max(user.id)
             is_vocation = check_is_vocation_max(user.id)
             dinner_start = check_dinner_start_max(user.id)
             await delete_msg_max(session, user.last_message)
+            now_ep = datetime.datetime.now().replace(microsecond=0)
             if dinner_start:
                 log.info("%s на перерыве", user)
                 menu = get_menu_max(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
@@ -232,12 +237,15 @@ async def evening_send_max(session: aiohttp.ClientSession) -> None:
                 mid = mid_from_response(res)
                 if mid:
                     user.set("last_message", mid)
+                    work.set("evening_prompt_at", now_ep)
                 await asyncio.sleep(0.1)
                 continue
-            res = await send_message(session, user_id=int(user.max_user_id), text=text, buttons=evening_kb)
+            menu = get_menu_max(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
+            res = await send_message(session, user_id=int(user.max_user_id), text=text, buttons=menu)
             mid = mid_from_response(res)
             if mid:
                 user.set("last_message", mid)
+                work.set("evening_prompt_at", now_ep)
             log.info("Вечернее сообщение отправлено: %s", user)
             await asyncio.sleep(0.1)
         except Exception as err:
@@ -253,13 +261,18 @@ async def delay_send_max(user_pk: int, session: aiohttp.ClientSession) -> None:
     if user.last_message:
         await delete_msg_max(session, user.last_message)
     if not work.end:
-        evening_kb = evening_menu_max()
+        work_is_started = check_work_is_started_max(user.id)
+        work_is_ended = check_work_is_ended_max(user.id)
+        is_vocation = check_is_vocation_max(user.id)
+        dinner_start = check_dinner_start_max(user.id)
+        menu = get_menu_max(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
         res = await send_message(
-            session, user_id=int(user.max_user_id), text="Рабочий день окончен", buttons=evening_kb
+            session, user_id=int(user.max_user_id), text="Рабочий день окончен", buttons=menu
         )
         mid = mid_from_response(res)
         if mid:
             user.set("last_message", mid)
+            work.set("evening_prompt_at", datetime.datetime.now().replace(microsecond=0))
     else:
         log.info("%s уже закончил", user)
 
@@ -346,37 +359,55 @@ async def morning_send_max(session: aiohttp.ClientSession) -> None:
             log.error("Ошибка утренней отправки %s: %s", user, err, exc_info=False)
 
 
-async def end_task_max(session: aiohttp.ClientSession, scheduler) -> None:
+async def end_task_max(session: aiohttp.ClientSession, scheduler=None) -> None:
+    """Завершение дня — та же двухфазная логика, что `end_task` в main.py (Telegram)."""
+    del scheduler  # оставлен в сигнатуре для совместимости с планировщиком
     log.info("MAX завершение дня")
     today = datetime.date.today()
-    users_with_empty = evening_users_max()
-    now = datetime.datetime.now()
-    for user in users_with_empty:
+    users_with_empty_work_end_today = evening_users_max()
+    log.info("MAX на смене: %s", users_with_empty_work_end_today)
+    for user in users_with_empty_work_end_today:
+        log.info("%s не закончил смену", user)
         work = get_today_work_max(user.id)
-        if work.last_reaction and now - work.last_reaction > datetime.timedelta(hours=1):
-            log.info("%s: прошёл час с последней реакции", user)
-            await end_work_max(user, today, work.last_reaction + datetime.timedelta(hours=1), session)
-            await delete_msg_max(session, user.last_message)
-        elif not work.last_reaction:
-            log.info("%s: реакции не было, закрываем в 17:00", user)
-            await end_work_max(user, today, datetime.datetime.combine(today, datetime.time(17, 0)), session)
-            await delete_msg_max(session, user.last_message)
+        if not work.last_reaction:
+            if check_dinner_start_max(user.id) and work.dinner_start:
+                log.info("%s: на перерыве, реакции нет — закрываем по времени ухода на перерыв", user)
+                await end_work_max(user, today, work.dinner_start, session)
+                work.set("dinner_start", None)
+                await delete_msg_max(session, user.last_message)
+            elif work.evening_prompt_at:
+                log.info("%s: реакции не было после вечернего — условное окончание в 17.00", user)
+                end_time1 = datetime.datetime.combine(today, datetime.time(17, 0))
+                end_time2 = work.begin
+                end_time = max(end_time1, end_time2) if work.begin else end_time1
+                await end_work_max(user, today, end_time, session)
+                await delete_msg_max(session, user.last_message)
+            else:
+                log.info("%s: вечернее не отмечено как отправленное — закрытие по фактическому времени", user)
+                await end_work_max(user, today, datetime.datetime.now().replace(microsecond=0), session)
+                await delete_msg_max(session, user.last_message)
+        else:
+            log.info("%s есть реакция в %s", user, work.last_reaction)
 
-    users = evening_users_max()
+    users = all_evening_users_max()
     log.info("MAX осталось на смене: %s", users)
     if users:
-        if now.time() > datetime.time(23, 0):
-            log.info("MAX: принудительное закрытие в 23:00")
-            for user in users:
-                await end_work_max(user, today, datetime.datetime.combine(today, datetime.time(23, 0)), session)
-        else:
-            if max_settings.MAX_REPORT_INTERVAL_MINUTES and max_settings.MAX_REPORT_INTERVAL_MINUTES > 0:
-                log.debug(
-                    "MAX end_task: без отдельной отсрочки +15 мин (режим MAX_REPORT_INTERVAL_MINUTES)"
-                )
+        log.info("Хватит работать!")
+        for user in users:
+            log.info("%s еще на смене", user)
+            work = get_today_work_max(user.id)
+            if work.dinner_start and not work.dinner_end:
+                log.info("%s на обеде", user)
+                await end_work_max(user, today, work.dinner_start, session)
+                work.set("dinner_start", None)
+                continue
+            if work.last_reaction:
+                log.info("%s есть реакция %s", user, work.last_reaction)
+                endtime = work.last_reaction
             else:
-                run_time = datetime.datetime.now() + datetime.timedelta(minutes=15)
-                scheduler.add_job(end_task_max, DateTrigger(run_date=run_time), args=(session, scheduler))
+                log.info("%s нет реакции", user)
+                endtime = datetime.datetime.combine(today, datetime.time(17, 0))
+            await end_work_max(user, today, endtime, session)
 
 
 async def _send_max_interval_digest_to_admins(

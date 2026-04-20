@@ -1,4 +1,6 @@
-"""Inline-клавиатуры в формате MAX API (список рядов callback-кнопок)."""
+"""Inline-клавиатуры MAX — те же сценарии и payload, что у keyboards.py (Telegram)."""
+
+import datetime
 
 import logging
 
@@ -21,6 +23,30 @@ def custom_kb_max(width: int, buttons_dict: dict[str, str]) -> list[list[dict]]:
     return _layout_rows(flat, width)
 
 
+def get_dinner_menu_max(width: int = 1) -> list[list[dict]]:
+    buttons = [
+        _callback("✅ Закончить перерыв", "dinner_end"),
+        _callback("⌚️ Ввести время окончания перерыва ", "dinner_end_input"),
+    ]
+    return _layout_rows(buttons, width)
+
+
+def get_after_start_menu_max(width: int = 1) -> list[list[dict]]:
+    buttons = [
+        _callback("✅ Перерыв", "dinner_start"),
+        _callback("❌ Закончить смену?", "work_end_question"),
+    ]
+    return _layout_rows(buttons, width)
+
+
+def get_confirm_end_menu_max(width: int = 1) -> list[list[dict]]:
+    buttons = [
+        _callback("❌ Закончить смену", "confirm_work_end"),
+        _callback("✅ Работать дальше ", "work_continue"),
+    ]
+    return _layout_rows(buttons, width)
+
+
 def get_menu_max(
     width: int,
     work_is_started: bool = False,
@@ -37,25 +63,29 @@ def get_menu_max(
     )
     if work_is_started and work_is_ended:
         return None
+    now = datetime.datetime.now()
     buttons: list[dict] = []
+
+    if work_is_started and not dinner_started:
+        buttons.append(_callback("✅ Перерыв", "dinner_start"))
+
     if not work_is_started and not work_is_ended and not is_vocation and not dinner_started:
         buttons.append(_callback("Приступить к работе", "work_start"))
         buttons.append(_callback("Не работаю", "vocation_start"))
+
     if work_is_started and not work_is_ended and not dinner_started:
-        buttons.append(_callback("Закончить смену", "work_end"))
-    if work_is_started and not dinner_started:
-        buttons.append(_callback("Перерыв", "dinner_start"))
+        if now.hour >= 17:
+            buttons.append(_callback("⏱️ Закончу через 15 минут", "work_delay_15"))
+            buttons.append(_callback("⏰ Закончу через 30 минут", "work_delay_30"))
+            buttons.append(_callback("🕰  Закончу через час", "work_delay_60"))
+        buttons.append(_callback("⌚️ Ввести время окончания смены", "work_end_manual"))
+        buttons.append(_callback("❌ Закончить смену?", "work_end_question"))
+
     elif work_is_started and dinner_started:
-        buttons.append(_callback("Закончить перерыв", "dinner_end"))
-        buttons.append(_callback("Перерыв уже окончен", "dinner_end_input"))
+        buttons.append(_callback("✅ Закончить перерыв", "dinner_end"))
+        buttons.append(_callback("⌚️ Ввести время окончания перерыва ", "dinner_end_input"))
+
     if is_vocation:
         buttons.append(_callback("Выйти на работу", "vocation_end"))
+
     return _layout_rows(buttons, width)
-
-
-def evening_menu_max() -> list[list[dict]]:
-    return [
-        [_callback("Закончить смену", "work_end")],
-        [_callback("Еще 15 минут", "work_delay_15")],
-        [_callback("Еще час", "work_delay_60")],
-    ]
