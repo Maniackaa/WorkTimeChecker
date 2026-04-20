@@ -44,7 +44,8 @@ def get_factory():
     print(f'LOG_TO_FILE: {LOG_TO_FILE}')
     if not LOG_TO_FILE:
         return structlog.PrintLoggerFactory()
-    return structlog.WriteLoggerFactory(file=log_file_dir.with_suffix(".log").open("wt"))
+    log_file_dir.parent.mkdir(parents=True, exist_ok=True)
+    return structlog.WriteLoggerFactory(file=log_file_dir.with_suffix(".log").open("wt", encoding="utf-8"))
 
 
 def get_my_loggers():

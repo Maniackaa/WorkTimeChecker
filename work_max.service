@@ -1,0 +1,14 @@
+[Unit]
+Description=WorkTimeChecker MAX bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/WorkTimeChecker
+ExecStart=/root/WorkTimeChecker/venv/bin/python3 main_max.py
+KillMode=mixed
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

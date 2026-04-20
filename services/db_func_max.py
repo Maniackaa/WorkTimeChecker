@@ -15,6 +15,16 @@ from max_app.messaging import delete_message, mid_from_response, send_message
 log = logging.getLogger(__name__)
 
 
+async def _broadcast_summary_text_max(session: aiohttp.ClientSession, text: str) -> None:
+    """Сводка в группы (chat_id) и копии в ЛС указанным user_id — разные параметры MAX API."""
+    for cid in max_settings.get_group_chat_ids_for_broadcast():
+        await send_message(session, chat_id=cid, text=text)
+        await asyncio.sleep(0.05)
+    for uid in max_settings.get_summary_broadcast_user_ids():
+        await send_message(session, user_id=uid, text=text)
+        await asyncio.sleep(0.05)
+
+
 def check_user_max(max_uid: str) -> UserMax | None:
     with SessionMax() as session:
         return session.query(UserMax).filter(UserMax.max_user_id == str(max_uid)).one_or_none()
@@ -89,9 +99,7 @@ async def end_work_max(user: UserMax, date, end_time, session: aiohttp.ClientSes
 
     work = get_today_work_max(user.id)
     text = format_message_max(user, work)
-    gid = max_settings.MAX_GROUP_CHAT_ID
-    if gid:
-        await send_message(session, chat_id=int(gid), text=text)
+    await _broadcast_summary_text_max(session, text)
     await send_message(session, user_id=int(user.max_user_id), text=f"Смена окончена: {end_time}")
 
 
@@ -388,13 +396,25 @@ async def _send_max_interval_digest_to_admins(
         log.info("MAX тест-дайджест: MAX_ADMIN_IDS пуст — некому отправить сводку")
         return
     now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
-    group_ok = bool(max_settings.MAX_GROUP_CHAT_ID)
+    gids = max_settings.get_group_chat_ids_for_broadcast()
+    buids = max_settings.get_summary_broadcast_user_ids()
+    group_line = (
+        f"чатов (chat_id) для сводок: {len(gids)} ({', '.join(map(str, gids)) or '—'})"
+        if gids
+        else "чаты: нет (MAX_GROUP_CHAT_ID — только id групп/каналов, не user_id)"
+    )
+    user_line = (
+        f"копий в ЛС (user_id): {len(buids)} ({', '.join(map(str, buids))})"
+        if buids
+        else "ЛС по user_id: нет (MAX_BROADCAST_USER_IDS)"
+    )
     text = (
         f"[Тест MAX, каждые {interval} мин] {now}\n\n"
         f"Утро (не начали смену сегодня): {n_morning} чел.\n"
         f"Вечер (смена открыта, без конца): до тика {n_evening_before}, после {n_evening_after} чел.\n"
         f"В отпуске: {n_vacation} чел.\n"
-        f"Группа для отпусков: {'да' if group_ok else 'нет (MAX_GROUP_CHAT_ID)'}\n\n"
+        f"{group_line}\n"
+        f"{user_line}\n\n"
         "Личные напоминания не приходят, если вы уже закрыли смену за сегодня "
         "(есть и начало, и конец). Тогда списки «утро» и «вечер» для вас пустые — это норма.\n"
         "Утро — только у кого is_worked и сегодня ещё нет begin. "
@@ -433,9 +453,10 @@ async def run_all_max_scheduled_reports(session: aiohttp.ClientSession, schedule
 async def vocation_task_max(session: aiohttp.ClientSession) -> None:
     users_to_send = vocation_users_max()
     today = datetime.date.today()
-    gid = max_settings.MAX_GROUP_CHAT_ID
-    if not gid:
-        log.warning("MAX_GROUP_CHAT_ID не задан — отпуска в группу не отправлены")
+    gids = max_settings.get_group_chat_ids_for_broadcast()
+    uids = max_settings.get_summary_broadcast_user_ids()
+    if not gids and not uids:
+        log.warning("Нет получателей сводок по отпускам: задайте MAX_GROUP_CHAT_ID (чаты) и/или MAX_BROADCAST_USER_IDS")
         return
     for user in users_to_send:
         uname = f"@{user.username}" if user.username else "—"
@@ -445,5 +466,5 @@ async def vocation_task_max(session: aiohttp.ClientSession) -> None:
             f"Дата: {today.strftime('%d.%m.%Y')}\n"
             f"Не работает до: {user.vacation_to.strftime('%d.%m.%Y')}\n"
         )
-        await send_message(session, chat_id=int(gid), text=msg)
+        await _broadcast_summary_text_max(session, msg)
         await asyncio.sleep(0.1)

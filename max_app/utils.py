@@ -52,12 +52,3 @@ def is_private_work_chat(event) -> bool:
         if ct is not None and str(ct).lower() in ("group", "channel", "supergroup"):
             return False
     return True
-
-
-def get_configured_group_hint() -> str:
-    from config.max_settings import max_settings
-
-    gid = max_settings.MAX_GROUP_CHAT_ID
-    if gid:
-        return f"MAX_GROUP_CHAT_ID из .env: {gid}"
-    return "MAX_GROUP_CHAT_ID в .env не задан — укажите chat_id группы после проверки командой /id в этой группе."

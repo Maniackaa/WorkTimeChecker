@@ -6,6 +6,7 @@
 """
 import asyncio
 import logging
+import sys
 
 import aiohttp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -13,7 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from maxapi import Bot, Dispatcher
 
-from config.max_settings import max_settings
+from config.max_settings import BASE_DIR, max_settings
 from database import db_max  # noqa: F401
 from max_app import context
 from max_app.messaging import mid_from_response, send_message
@@ -26,10 +27,22 @@ from services.db_func_max import (
     vocation_task_max,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+def _configure_logging() -> None:
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    handlers: list[logging.Handler] = []
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setFormatter(fmt)
+    handlers.append(sh)
+    if max_settings.LOG_TO_FILE:
+        log_dir = BASE_DIR / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(log_dir / "max_bot.log", encoding="utf-8")
+        fh.setFormatter(fmt)
+        handlers.append(fh)
+    logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
+
+
+_configure_logging()
 log = logging.getLogger("max_bot")
 
 bot = Bot(max_settings.MAX_BOT_TOKEN)

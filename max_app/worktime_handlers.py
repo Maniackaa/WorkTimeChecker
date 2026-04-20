@@ -18,7 +18,6 @@ from max_app.messaging import mid_from_response, send_message
 from max_app.utils import (
     get_chat_id_from_event,
     get_chat_type_label,
-    get_configured_group_hint,
     get_message_id_from_event,
     is_private_work_chat,
 )
@@ -116,13 +115,11 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
         chat_type = get_chat_type_label(event)
         text = (
             "Идентификаторы MAX\n\n"
-            f"Ваш user_id: {user_id}\n"
-            f"Имя в профиле: {name}\n"
+            f"user_id: {user_id}\n"
+            f"Имя: {name}\n"
             f"Username: {username}\n\n"
-            f"chat_id этого чата: {chat_id}\n"
-            f"Тип чата (если есть в событии): {chat_type}\n\n"
-            "• В группе chat_id можно записать в MAX_GROUP_CHAT_ID в .env.\n\n"
-            f"{get_configured_group_hint()}"
+            f"chat_id: {chat_id}\n"
+            f"Тип чата: {chat_type}"
         )
         await event.message.answer(text)
 
