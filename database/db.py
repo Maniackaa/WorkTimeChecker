@@ -48,9 +48,13 @@ class User(Base):
     is_worked: Mapped[int] = mapped_column(Integer(), default=1)
     vacation_to: Mapped[datetime.datetime] = mapped_column(Date(), nullable=True)
     last_message: Mapped[int] = mapped_column(Integer(), nullable=True)
-    works: Mapped[List['Work']] = relationship(back_populates='user',
-                                                  cascade='save-update, merge, delete',
-                                                  passive_deletes=True, lazy='selectin')
+    works: Mapped[List['Work']] = relationship(
+        back_populates='user',
+        cascade='save-update, merge, delete',
+        passive_deletes=True,
+        lazy='selectin',
+        order_by='Work.date, Work.id',
+    )
 
     def __repr__(self):
         return f'{self.id}. {self.username or "-"} {self.tg_id}'

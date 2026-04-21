@@ -5,8 +5,6 @@ from __future__ import annotations
 import datetime
 import logging
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.date import DateTrigger
 from maxapi import Dispatcher
 from maxapi.types import Command, MessageCallback, MessageCreated
 
@@ -33,7 +31,6 @@ from services.db_func_max import (
     check_is_vocation_max,
     check_work_is_ended_max,
     check_work_is_started_max,
-    delay_send_max,
     delete_msg_max,
     end_work_max,
     format_message_max,
@@ -95,6 +92,7 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
             await _answer_text(event, "Не удалось сохранить профиль. Обратитесь к администратору.")
             return
         log.info("MAX старт: %s", user)
+        max_user_fsm.pop(event.message.sender.user_id, None)
         if user.last_message:
             await delete_msg_max(s, user.last_message)
         work_is_started = check_work_is_started_max(user.id)
@@ -226,29 +224,18 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
             if user.last_message:
                 with Timer("delete_msg_max"):
                     await delete_msg_max(s, user.last_message)
-            target_time = datetime.datetime.now()
+            target_time = datetime.datetime.now().replace(microsecond=0) + datetime.timedelta(minutes=delay)
             target_time_str = format_datetime(target_time)
             res = await send_message(
                 s,
                 user_id=int(user.max_user_id),
-                text=f"Планируемое врямя окончания: {target_time_str}",
+                text=f"Планируемое время окончания: {target_time_str}",
                 buttons=menu_kb,
             )
             mid_new = mid_from_response(res)
             if mid_new:
                 user.set("last_message", mid_new)
             work.set("last_reaction", target_time)
-            run_time = datetime.datetime.now() + datetime.timedelta(minutes=delay)
-            sched = AsyncIOScheduler()
-
-            async def _run_delay():
-                s2 = context.http_session
-                if s2:
-                    await delay_send_max(user.id, s2)
-
-            sched.add_job(_run_delay, DateTrigger(run_date=run_time))
-            sched.start()
-            log.info("MAX delay_send для %s в %s", user, run_time)
 
         elif payload == "work_end_manual":
             await send_message(
@@ -345,17 +332,15 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                     work_end_dt = datetime.datetime.combine(today, time_obj)
                     if work_end_dt > datetime.datetime.now():
                         await send_message(s, user_id=uid, text="Время окончания не может быть позже чем сейчас")
-                        max_user_fsm.pop(uid, None)
                         return
                     await send_message(s, user_id=uid, text=f"Смена окончена: {format_datetime(work_end_dt)}")
                     work.set("end", work_end_dt)
                     work_ref = get_today_work_max(user.id)
                     text_out = format_message_max(user, work_ref)
                     await _broadcast_summary_text_max(s, text_out)
-                max_user_fsm.pop(uid, None)
+                    max_user_fsm.pop(uid, None)
             except ValueError:
                 await send_message(s, user_id=uid, text="Введите время в формате ЧЧ:ММ")
-                max_user_fsm.pop(uid, None)
 
         elif state == "vacation":
             try:
@@ -373,11 +358,10 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                     mid = mid_from_response(res)
                     if mid:
                         user.set("last_message", mid)
+                    max_user_fsm.pop(uid, None)
             except ValueError:
                 log.warning("Неверная дата отпуска: %s", text_raw)
                 await send_message(s, user_id=uid, text="Введите дату в формате дд.мм.гггг")
-            finally:
-                max_user_fsm.pop(uid, None)
 
         elif state == "dinner_end":
             try:
@@ -387,7 +371,6 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                     return
                 work = get_today_work_max(user.id)
                 if not (work.dinner_start and not work.dinner_end):
-                    max_user_fsm.pop(uid, None)
                     return
                 today = datetime.date.today()
                 time_obj = datetime.datetime.strptime(text_raw, "%H:%M").time()
@@ -412,5 +395,4 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
                     user.set("last_message", mid)
                 max_user_fsm.pop(uid, None)
             except ValueError:
-                await send_message(s, user_id=uid, text="Ведите время в формате ЧЧ:ММ")
-                max_user_fsm.pop(uid, None)
+                await send_message(s, user_id=uid, text="Введите время в формате ЧЧ:ММ")

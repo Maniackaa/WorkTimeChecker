@@ -44,7 +44,7 @@ class UserMax(BaseMax):
     register_date: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     fio: Mapped[str] = mapped_column(String(200), nullable=True)
     is_active: Mapped[int] = mapped_column(Integer(), default=0)
-    is_worked: Mapped[int] = mapped_column(Integer(), default=0)
+    is_worked: Mapped[int] = mapped_column(Integer(), default=1)
     vacation_to: Mapped[datetime.date] = mapped_column(Date(), nullable=True)
     last_message: Mapped[str] = mapped_column(String(128), nullable=True)
     works: Mapped[List["WorkMax"]] = relationship(
@@ -52,6 +52,7 @@ class UserMax(BaseMax):
         cascade="save-update, merge, delete",
         passive_deletes=True,
         lazy="selectin",
+        order_by="WorkMax.date, WorkMax.id",
     )
 
     def __repr__(self):
@@ -104,6 +105,19 @@ def _migrate_works_max_evening_prompt() -> None:
 
 
 _migrate_works_max_evening_prompt()
+
+
+def _migrate_users_max_is_worked() -> None:
+    """Как у Telegram User.is_worked=1 по умолчанию — иначе утренняя рассылка пустая."""
+    insp = inspect(engine)
+    if not insp.has_table("users_max"):
+        return
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE users_max SET is_worked = 1 WHERE is_worked = 0"))
+    log.info("БД MAX: users_max.is_worked=0 приведено к 1 (паритет с TG)")
+
+
+_migrate_users_max_is_worked()
 
 
 def add_users_max_if_not_exists(session_factory, users_data: dict[str, str]) -> None:

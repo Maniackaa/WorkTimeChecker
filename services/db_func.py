@@ -132,7 +132,7 @@ def morning_users():
                 )
             ).outerjoin(Work, and_(Work.user_id == User.id, Work.date == today))
 
-            users = session.scalars(stmt).all()
+            users = session.scalars(stmt).unique().all()
             available_users = []
             for user in users:
                 if not user.works:

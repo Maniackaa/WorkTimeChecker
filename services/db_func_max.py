@@ -73,9 +73,9 @@ def start_work_max(user_id: int, date, start_time) -> None:
     with session:
         q = select(WorkMax).where(WorkMax.user_id == user_id).where(WorkMax.date == date)
         work = session.execute(q).scalars().one_or_none()
-        today = datetime.datetime.today().date()
+        day = date if isinstance(date, datetime.date) else datetime.date.today()
         if not work:
-            work = WorkMax(user_id=user_id, date=today, begin=start_time)
+            work = WorkMax(user_id=user_id, date=day, begin=start_time)
             session.add(work)
         else:
             work.begin = start_time
@@ -88,9 +88,9 @@ async def end_work_max(user: UserMax, date, end_time, session: aiohttp.ClientSes
     with s:
         q = select(WorkMax).where(WorkMax.user_id == user.id).where(WorkMax.date == date)
         work = s.execute(q).scalars().one_or_none()
-        today = datetime.datetime.today().date()
+        day = date if isinstance(date, datetime.date) else datetime.date.today()
         if not work:
-            work = WorkMax(user_id=user.id, date=today, end=end_time)
+            work = WorkMax(user_id=user.id, date=day, end=end_time)
             s.add(work)
         else:
             work.end = end_time
@@ -114,23 +114,36 @@ def get_today_work_max(user_id: int) -> WorkMax:
 
 
 def morning_users_max() -> list[UserMax]:
-    session = SessionMax(expire_on_commit=False)
-    today = datetime.date.today()
-    with session:
-        stmt = select(UserMax).where(
-            and_(
-                UserMax.is_worked == 1,
-                or_(UserMax.vacation_to.is_(None), UserMax.vacation_to <= today),
+    """Как morning_users() в services/db_func.py: outerjoin смены за сегодня и проверка user.works[-1]."""
+    try:
+        session = SessionMax(expire_on_commit=False)
+        today = datetime.date.today()
+        with session:
+            stmt = (
+                select(UserMax)
+                .where(
+                    and_(
+                        UserMax.is_worked == 1,
+                        or_(UserMax.vacation_to.is_(None), UserMax.vacation_to <= today),
+                    )
+                )
+                .outerjoin(WorkMax, and_(WorkMax.user_id == UserMax.id, WorkMax.date == today))
+                .options(joinedload(UserMax.works))
             )
-        )
-        users = list(session.scalars(stmt).all())
-    available: list[UserMax] = []
-    for u in users:
-        w = get_today_work_max(u.id)
-        if not w.begin:
-            available.append(u)
-    log.debug("MAX morning users: %s", available)
-    return available
+            users = list(session.scalars(stmt).unique().all())
+        available_users: list[UserMax] = []
+        for user in users:
+            if not user.works:
+                available_users.append(user)
+            else:
+                last_work = user.works[-1]
+                if last_work.date != today or (last_work.date == today and not last_work.begin):
+                    available_users.append(user)
+        log.debug("MAX morning users: %s", available_users)
+        return available_users
+    except Exception as e:
+        log.error("morning_users_max: %s", e, exc_info=True)
+        return []
 
 
 def evening_users_max() -> list[UserMax]:
@@ -252,31 +265,6 @@ async def evening_send_max(session: aiohttp.ClientSession) -> None:
             log.error("Ошибка вечерней отправки %s: %s", user, err, exc_info=False)
 
 
-async def delay_send_max(user_pk: int, session: aiohttp.ClientSession) -> None:
-    user = get_user_max_from_pk(user_pk)
-    if not user:
-        return
-    log.info("MAX delay_send для %s", user)
-    work = get_today_work_max(user.id)
-    if user.last_message:
-        await delete_msg_max(session, user.last_message)
-    if not work.end:
-        work_is_started = check_work_is_started_max(user.id)
-        work_is_ended = check_work_is_ended_max(user.id)
-        is_vocation = check_is_vocation_max(user.id)
-        dinner_start = check_dinner_start_max(user.id)
-        menu = get_menu_max(1, work_is_started, work_is_ended, is_vocation, dinner_started=dinner_start)
-        res = await send_message(
-            session, user_id=int(user.max_user_id), text="Рабочий день окончен", buttons=menu
-        )
-        mid = mid_from_response(res)
-        if mid:
-            user.set("last_message", mid)
-            work.set("evening_prompt_at", datetime.datetime.now().replace(microsecond=0))
-    else:
-        log.info("%s уже закончил", user)
-
-
 def format_message_max(user: UserMax, work: WorkMax) -> str:
     work_durations = calculate_work_durations_max(user.id)
     uname = f"@{user.username}" if user.username else "—"
@@ -342,21 +330,24 @@ def calculate_work_durations_max(user_id: int) -> dict[str, str]:
 
 
 async def morning_send_max(session: aiohttp.ClientSession) -> None:
-    users_to_send = morning_users_max()
-    log.info("MAX утро: к отправке %s чел.", len(users_to_send))
-    text = "Вы на рабочем месте?  Начинаем работу?"
-    menu = get_menu_max(1, work_is_started=False, work_is_ended=False)
-    for user in users_to_send:
-        try:
-            await delete_msg_max(session, user.last_message)
-            res = await send_message(session, user_id=int(user.max_user_id), text=text, buttons=menu)
-            mid = mid_from_response(res)
-            if mid:
-                user.set("last_message", mid)
-            log.info("Утреннее сообщение MAX: %s", user)
-            await asyncio.sleep(0.1)
-        except Exception as err:
-            log.error("Ошибка утренней отправки %s: %s", user, err, exc_info=False)
+    try:
+        users_to_send = morning_users_max()
+        log.info("MAX утро: к отправке %s чел.", len(users_to_send))
+        text = "Вы на рабочем месте?  Начинаем работу?"
+        menu = get_menu_max(1, work_is_started=False, work_is_ended=False)
+        for user in users_to_send:
+            try:
+                await delete_msg_max(session, user.last_message)
+                res = await send_message(session, user_id=int(user.max_user_id), text=text, buttons=menu)
+                mid = mid_from_response(res)
+                if mid:
+                    user.set("last_message", mid)
+                log.info("Утреннее сообщение MAX: %s", user)
+                await asyncio.sleep(0.1)
+            except Exception as err:
+                log.error("Ошибка утренней отправки %s: %s", user, err, exc_info=False)
+    except Exception as err:
+        log.error("morning_send_max: %s", err, exc_info=True)
 
 
 async def end_task_max(session: aiohttp.ClientSession, scheduler=None) -> None:
