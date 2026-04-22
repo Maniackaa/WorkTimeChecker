@@ -178,6 +178,7 @@ async def vocation_task(bot: Bot):
 
 def set_scheduled_jobs(scheduler, bot, *args, **kwargs):
     # scheduler.add_job(morning_send, "interval", seconds=10, args=(bot,))
+    scheduler.add_job(morning_send, CronTrigger(hour=7, minute=30), args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=7, minute=59), args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=8, minute=15), args=(bot,))
     scheduler.add_job(morning_send, CronTrigger(hour=8, minute=30), args=(bot,))

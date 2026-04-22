@@ -139,6 +139,7 @@ def _set_scheduled_jobs(scheduler: AsyncIOScheduler, session: aiohttp.ClientSess
         )
         return
 
+    scheduler.add_job(morning_send_max, CronTrigger(hour=7, minute=30), args=(session,))
     scheduler.add_job(morning_send_max, CronTrigger(hour=7, minute=59), args=(session,))
     scheduler.add_job(morning_send_max, CronTrigger(hour=8, minute=15), args=(session,))
     scheduler.add_job(morning_send_max, CronTrigger(hour=8, minute=30), args=(session,))
