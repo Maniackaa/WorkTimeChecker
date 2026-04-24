@@ -97,11 +97,28 @@ async def end_work(user: User, date, end_time, bot):
 
         work = get_today_work(user.id)
         text = format_message(user, work)
+        logger.info(
+            "Telegram: отправка сводки в группу после конца смены chat_id=%s user_db_id=%s",
+            settings.GROUP_ID,
+            user.id,
+        )
         await bot.send_message(chat_id=settings.GROUP_ID, text=text)
+        logger.info(
+            "Telegram: сводка в группу отправлена chat_id=%s user_db_id=%s",
+            settings.GROUP_ID,
+            user.id,
+        )
         await bot.send_message(chat_id=user.tg_id, text=f'Смена окончена: {end_time}')
 
     except Exception as e:
-        logger.warning(f'Ошибка при окончании смены для {user} {date}, {end_time}')
+        logger.warning(
+            "Ошибка при окончании смены для %s date=%s end_time=%s: %s",
+            user,
+            date,
+            end_time,
+            e,
+            exc_info=True,
+        )
 
 
 def get_today_work(user_id: int) -> Work:

@@ -16,11 +16,33 @@ log = logging.getLogger(__name__)
 
 async def _broadcast_summary_text_max(session: aiohttp.ClientSession, text: str) -> None:
     """Сводка в группы (chat_id) и копии в ЛС указанным user_id — разные параметры MAX API."""
-    for cid in max_settings.get_group_chat_ids_for_broadcast():
-        await send_message(session, chat_id=cid, text=text)
+    gids = max_settings.get_group_chat_ids_for_broadcast()
+    uids = max_settings.get_summary_broadcast_user_ids()
+    if not gids and not uids:
+        log.warning(
+            "MAX сводка: не отправлена — пусто MAX_GROUP_CHAT_ID и MAX_BROADCAST_USER_IDS "
+            "(настройте chat_id групп в .env)"
+        )
+        return
+    for cid in gids:
+        log.info("MAX: отправка сводки в группу chat_id=%s text_len=%s", cid, len(text))
+        res = await send_message(session, chat_id=cid, text=text)
+        if res is None:
+            log.warning("MAX: сводка в chat_id=%s — API не вернул успешный ответ (см. max_app.messaging)", cid)
+        else:
+            log.info(
+                "MAX: сводка в группу chat_id=%s отправлена mid=%s",
+                cid,
+                mid_from_response(res),
+            )
         await asyncio.sleep(0.05)
-    for uid in max_settings.get_summary_broadcast_user_ids():
-        await send_message(session, user_id=uid, text=text)
+    for uid in uids:
+        log.info("MAX: отправка копии сводки в ЛС user_id=%s text_len=%s", uid, len(text))
+        res = await send_message(session, user_id=uid, text=text)
+        if res is None:
+            log.warning("MAX: сводка user_id=%s — API не вернул успешный ответ", uid)
+        else:
+            log.info("MAX: сводка в ЛС user_id=%s отправлена mid=%s", uid, mid_from_response(res))
         await asyncio.sleep(0.05)
 
 

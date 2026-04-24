@@ -112,13 +112,29 @@ def register_worktime_handlers(dp: Dispatcher) -> None:
     @dp.message_created(Command("id"))
     async def cmd_id(event: MessageCreated):
         user = event.message.sender
-        user_id = user.user_id
         chat_id = get_chat_id_from_event(event)
+        chat_type = get_chat_type_label(event)
+        if user is None:
+            log.info(
+                "MAX /id: sender отсутствует (канал/системное сообщение?) chat_id=%s type=%s",
+                chat_id,
+                chat_type,
+            )
+            text = (
+                "Идентификаторы MAX\n\n"
+                "user_id: — (в этом событии нет отправителя; напишите /id из лички с ботом)\n"
+                "Имя: —\n"
+                "Username: —\n\n"
+                f"chat_id: {chat_id}\n"
+                f"Тип чата: {chat_type}"
+            )
+            await event.message.answer(text)
+            return
+        user_id = user.user_id
         first = getattr(user, "first_name", None) or ""
         last = getattr(user, "last_name", None) or ""
         name = f"{first} {last}".strip() or "—"
         username = getattr(user, "username", None) or "—"
-        chat_type = get_chat_type_label(event)
         text = (
             "Идентификаторы MAX\n\n"
             f"user_id: {user_id}\n"

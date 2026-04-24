@@ -314,7 +314,16 @@ async def work_end_manual_input(message: Message, state: FSMContext, bot: Bot):
 
             work = get_today_work(user.id)
             text = format_message(user, work)
+            logger.info(
+                "Telegram: ручной конец смены — сводка в группу chat_id=%s user_db_id=%s",
+                settings.GROUP_ID,
+                user.id,
+            )
             await bot.send_message(chat_id=settings.GROUP_ID, text=text)
+            logger.info(
+                "Telegram: ручной конец смены — сводка в группу отправлена user_db_id=%s",
+                user.id,
+            )
     except Exception as e:
         logger.error(e)
         await message.answer(f'Введите время в формате ЧЧ:ММ')
