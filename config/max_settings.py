@@ -74,14 +74,18 @@ class MaxSettings(BaseSettings):
         return valid, invalid
 
     def get_group_chat_ids_for_broadcast(self) -> list[int]:
-        """Числовые chat_id для сводок (конец смены) и отпусков; несколько значений через запятую в MAX_GROUP_CHAT_ID."""
+        """Числовые chat_id для сводок (конец смены) и отпусков; несколько через запятую. У групп/каналов id отрицательный."""
         if not self.MAX_GROUP_CHAT_ID:
             return []
         out: list[int] = []
         for part in str(self.MAX_GROUP_CHAT_ID).split(","):
             p = part.strip()
-            if p.isdigit():
+            if not p:
+                continue
+            try:
                 out.append(int(p))
+            except ValueError:
+                continue
         return out
 
     def get_summary_broadcast_user_ids(self) -> list[int]:
