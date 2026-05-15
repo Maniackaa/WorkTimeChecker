@@ -10,6 +10,7 @@ from config.max_settings import max_settings
 from database.db_max import SessionMax, UserMax, WorkMax
 from keyboards.keyboards_max import get_menu_max
 from max_app.messaging import delete_message, mid_from_response, send_message
+from services.worktime_rules import evening_auto_close_end
 
 log = logging.getLogger(__name__)
 
@@ -389,10 +390,11 @@ async def end_task_max(session: aiohttp.ClientSession, scheduler=None) -> None:
                 work.set("dinner_start", None)
                 await delete_msg_max(session, user.last_message)
             elif work.evening_prompt_at:
-                log.info("%s: реакции не было после вечернего — условное окончание в 17.00", user)
-                end_time1 = datetime.datetime.combine(today, datetime.time(17, 0))
-                end_time2 = work.begin
-                end_time = max(end_time1, end_time2) if work.begin else end_time1
+                log.info(
+                    "%s: реакции не было после вечернего — условное окончание (17:00 / конец последнего перерыва)",
+                    user,
+                )
+                end_time = evening_auto_close_end(today, work)
                 await end_work_max(user, today, end_time, session)
                 await delete_msg_max(session, user.last_message)
             else:
@@ -414,12 +416,8 @@ async def end_task_max(session: aiohttp.ClientSession, scheduler=None) -> None:
                 await end_work_max(user, today, work.dinner_start, session)
                 work.set("dinner_start", None)
                 continue
-            if work.last_reaction:
-                log.info("%s есть реакция %s", user, work.last_reaction)
-                endtime = work.last_reaction
-            else:
-                log.info("%s нет реакции", user)
-                endtime = datetime.datetime.combine(today, datetime.time(17, 0))
+            endtime = evening_auto_close_end(today, work)
+            log.info("%s дозакрытие по правилу 17:00/начало/last_reaction -> %s", user, endtime)
             await end_work_max(user, today, endtime, session)
 
 

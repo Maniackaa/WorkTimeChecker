@@ -86,6 +86,9 @@ class WorkMax(BaseMax):
     dinner_end: Mapped[datetime.datetime] = mapped_column(DateTime(), nullable=True)
     total_dinner: Mapped[int] = mapped_column(Integer(), default=0)
 
+    def __repr__(self):
+        return f"WorkMax {self.id}. {self.date}"
+
 
 if not database_exists(db_url):
     create_database(db_url)

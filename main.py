@@ -18,6 +18,7 @@ from handlers.user_handlers import delete_msg
 from keyboards.keyboards import get_menu
 from services.db_func import morning_users, evening_users, get_today_work, end_work, vocation_users, \
     all_evening_users, check_work_is_started, check_work_is_ended, check_is_vocation, check_dinner_start
+from services.worktime_rules import evening_auto_close_end
 
 
 async def set_commands(bot: Bot):
@@ -122,10 +123,8 @@ async def end_task(bot):
                 work.set('dinner_start', None)
                 await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
             elif work.evening_prompt_at:
-                logger.info(f'{user} Реакции не было после вечернего — условное окончание в 17.00')
-                end_time1 = datetime.datetime.combine(today, datetime.time(17, 0))
-                end_time2 = work.begin
-                end_time = max(end_time1, end_time2) if work.begin else end_time1
+                logger.info(f'{user} Реакции не было после вечернего — условное окончание (17:00 / конец последнего перерыва)')
+                end_time = evening_auto_close_end(today, work)
                 await end_work(user, today, end_time, bot)
                 await delete_msg(bot, chat_id=user.tg_id, message_id=user.last_message)
             else:
@@ -152,13 +151,8 @@ async def end_task(bot):
                 work.set('dinner_start', None)
                 continue
 
-            # Если не на обеде
-            if work.last_reaction:
-                logger.info(f'{user} есть реакция {work.last_reaction}')
-                endtime = work.last_reaction
-            else:
-                logger.info(f'{user} нет реакции')
-                endtime = datetime.datetime.combine(today, datetime.time(17, 00))
+            endtime = evening_auto_close_end(today, work)
+            logger.info(f'{user} дозакрытие по правилу 17:00/начало/last_reaction -> {endtime}')
             await end_work(user, today, endtime, bot)
 
 
